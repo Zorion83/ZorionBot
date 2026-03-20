@@ -9,3 +9,8 @@ services:
       - /srv/data/donchianbot:/app/data
     environment:
       - DATA_DIR=/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
