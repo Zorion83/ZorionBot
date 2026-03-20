@@ -1,0 +1,11 @@
+services:
+  donchianbot:
+    container_name: donchianbot
+    build: .
+    restart: unless-stopped
+    env_file:
+      - /srv/data/donchianbot/.env
+    volumes:
+      - /srv/data/donchianbot:/app/data
+    environment:
+      - DATA_DIR=/app/data
