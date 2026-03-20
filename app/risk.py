@@ -39,4 +39,7 @@ def calculate_tp(entry: float, sl: float, rr_ratio: float, direction: str) -> fl
     distance = abs(entry - sl)
     if direction == "BUY":
         return entry + distance * rr_ratio
-    return entry - distance * rr_ratio
+    elif direction == "SELL":
+        return entry - distance * rr_ratio
+    else:
+        raise ValueError(f"Invalid direction '{direction}'. Expected 'BUY' or 'SELL'.")

@@ -35,3 +35,7 @@ class TestCalculateTp:
     def test_rr_ratio_one(self):
         # rr=1 → TP = entry + distance (1:1)
         assert calculate_tp(100.0, 95.0, 1.0, "BUY") == pytest.approx(105.0)
+
+    def test_invalid_direction_raises(self):
+        with pytest.raises(ValueError):
+            calculate_tp(100.0, 90.0, 2.0, "LONG")
