@@ -10,8 +10,6 @@ import logging
 import os
 from datetime import datetime, timezone
 
-import httpx
-
 from config import (
     IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD, DEMO_MODE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
@@ -138,6 +136,7 @@ async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
     now = datetime.now(timezone.utc)
     logger.info("═══ Cycle %s ═══", now.strftime("%Y-%m-%d %H:%M UTC"))
 
+    # Fetch balance as a connectivity check and for future risk gating
     balance = await broker.get_account_balance()
     if not balance:
         logger.warning("Balance unavailable — cycle cancelled")
@@ -228,17 +227,23 @@ async def main() -> None:
     await telegram.send_test_message()
 
     # Connect with retry (max 3 attempts, 60s between)
+    connected = False
     for attempt in range(1, 4):
         try:
             await broker.connect()
+            connected = True
             break
         except BrokerError as e:
             logger.error("Attempt %d/3 — IG connection failed: %s", attempt, e)
             await telegram.send_error("Startup", f"Attempt {attempt}/3 — {e}")
             if attempt == 3:
                 logger.critical("Cannot connect to IG — stopping.")
-                return
-            await asyncio.sleep(60)
+            else:
+                await asyncio.sleep(60)
+
+    if not connected:
+        await broker.disconnect()
+        return
 
     await telegram.send_startup(DEMO_MODE, list(ENABLED_ASSETS.keys()))
     _load_disk_cache()
