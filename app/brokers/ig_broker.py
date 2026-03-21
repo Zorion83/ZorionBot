@@ -31,6 +31,14 @@ class IGBroker(BaseBroker):
         self._token      = ""
         self._client     = httpx.AsyncClient(timeout=30.0)
 
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.disconnect()
+        return False
+
     def _headers(self) -> dict:
         return {
             "Content-Type":     "application/json; charset=UTF-8",
@@ -91,11 +99,12 @@ class IGBroker(BaseBroker):
             resp = await self._client.get(url, params=params, headers=headers)
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            raise httpx.HTTPStatusError(
-                f"get_candles {symbol} ({e.response.status_code})",
-                request=e.request,
-                response=e.response,
+            raise BrokerError(
+                f"get_candles {symbol} failed ({e.response.status_code}): {e.response.text}",
+                status_code=e.response.status_code,
             ) from e
+        except httpx.RequestError as e:
+            raise BrokerError(f"Network error fetching candles for {symbol}: {e}") from e
 
         candles = []
         for item in resp.json().get("prices", []):

@@ -12,7 +12,10 @@ from typing import List
 
 class BrokerError(Exception):
     """Raised when the broker rejects or fails to execute an operation."""
-    pass
+
+    def __init__(self, message: str, status_code: int = 0):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class BaseBroker(ABC):
