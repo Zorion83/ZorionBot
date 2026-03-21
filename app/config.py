@@ -1,0 +1,30 @@
+"""
+config.py — All configuration variables read from environment.
+Copy .env.example → .env and fill in values before starting.
+"""
+import os
+
+# ── Broker ────────────────────────────────────────────────────────
+BROKER         = os.environ.get("BROKER", "ig")
+IG_API_KEY     = os.environ.get("IG_API_KEY", "")
+IG_IDENTIFIER  = os.environ.get("IG_IDENTIFIER", "")
+IG_PASSWORD    = os.environ.get("IG_PASSWORD", "")
+DEMO_MODE      = os.environ.get("DEMO_MODE", "true").lower() == "true"
+
+# ── Telegram ──────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# ── Strategy ──────────────────────────────────────────────────────
+DONCHIAN_LENGTH   = int(os.environ.get("DONCHIAN_LENGTH", "100"))
+LOOKBACK_CANDLES  = int(os.environ.get("LOOKBACK_CANDLES", "500"))
+
+# ── Risk ──────────────────────────────────────────────────────────
+RISK_AMOUNT  = float(os.environ.get("RISK_AMOUNT", "50.0"))
+POINT_VALUE  = float(os.environ.get("POINT_VALUE", "1.0"))
+RR_RATIO     = float(os.environ.get("RR_RATIO", "2.0"))
+
+# ── Logs ──────────────────────────────────────────────────────────
+DATA_DIR  = os.environ.get("DATA_DIR", "/app/data")
+LOG_FILE  = os.path.join(DATA_DIR, "donchianbot.log")
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
