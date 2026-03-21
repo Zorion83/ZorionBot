@@ -34,6 +34,12 @@ def donchian_channel(highs: list, lows: list, length: int) -> tuple:
         - limitHigh : upper quartile (Q3) — sell zone
         - limitLow  : lower quartile (Q1) — buy zone
     """
+    if length <= 0:
+        raise ValueError("length must be positive")
+    if len(highs) < length or len(lows) < length:
+        raise ValueError(f"donchian_channel requires at least {length} candles, got {min(len(highs), len(lows))}")
+    if len(highs) != len(lows):
+        raise ValueError(f"highs and lows must have the same length (got {len(highs)} and {len(lows)})")
     upper = max(highs[-length:])
     lower = min(lows[-length:])
     basis = (upper + lower) / 2.0

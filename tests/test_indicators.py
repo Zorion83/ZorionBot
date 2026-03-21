@@ -29,6 +29,14 @@ class TestDonchianChannel:
         upper, lower, basis, limitHigh, limitLow = donchian_channel(highs, lows, 50)
         assert upper == pytest.approx(10.0)
 
+    def test_raises_when_too_few_candles(self):
+        with pytest.raises(ValueError):
+            donchian_channel([10.0] * 5, [5.0] * 5, 10)  # length > list size
+
+    def test_raises_when_lists_differ_in_length(self):
+        with pytest.raises(ValueError):
+            donchian_channel([10.0] * 10, [5.0] * 8, 5)  # mismatched lengths
+
 
 class TestZlMacd:
     def _make_trend(self, start, step, n=200):
