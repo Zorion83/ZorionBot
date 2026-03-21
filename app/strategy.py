@@ -30,25 +30,29 @@ logger = logging.getLogger(__name__)
 
 
 def analyse_asset(
-    asset_name:      str,
-    asset_config:    Dict,
-    candles:         List[Dict],
-    prev_long:       bool,
-    prev_short:      bool,
-    risk_amount:     float,
-    donchian_length: int,
+    asset_name:          str,
+    asset_config:        Dict,
+    candles:             List[Dict],
+    prev_long:           bool,
+    prev_short:          bool,
+    risk_amount:         float,
+    donchian_length:     int,
+    global_point_value:  float = 1.0,
+    global_rr_ratio:     float = 2.0,
 ) -> Optional[Dict]:
     """
     Analyse candles and return a signal dict or None.
 
     Args:
-        asset_name:      Human-readable asset name (e.g. "DAX")
-        asset_config:    Dict with symbol, point_value, rr_ratio
-        candles:         List of candle dicts (needs at least donchian_length + 60)
-        prev_long:       True if a LONG signal fired on the previous candle
-        prev_short:      True if a SHORT signal fired on the previous candle
-        risk_amount:     Amount to risk per trade
-        donchian_length: Donchian channel period
+        asset_name:         Human-readable asset name (e.g. "DAX")
+        asset_config:       Dict with symbol, point_value, rr_ratio
+        candles:            List of candle dicts (needs at least donchian_length + 60)
+        prev_long:          True if a LONG signal fired on the previous candle
+        prev_short:         True if a SHORT signal fired on the previous candle
+        risk_amount:        Amount to risk per trade
+        donchian_length:    Donchian channel period
+        global_point_value: Fallback point_value from .env (used if not set per asset)
+        global_rr_ratio:    Fallback rr_ratio from .env (used if not set per asset)
 
     Returns:
         Signal dict or None.
@@ -103,8 +107,9 @@ def analyse_asset(
         return None
 
     # ── Price levels ──────────────────────────────────────────────
-    point_value = asset_config.get("point_value", 1.0)
-    rr_ratio    = asset_config.get("rr_ratio", 2.0)
+    # Per-asset value takes priority; fall back to global .env value
+    point_value = asset_config.get("point_value") or global_point_value
+    rr_ratio    = asset_config.get("rr_ratio")    or global_rr_ratio
 
     if long_signal:
         direction   = "BUY"

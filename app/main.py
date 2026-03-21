@@ -14,6 +14,7 @@ from config import (
     IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD, DEMO_MODE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     RISK_AMOUNT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
+    POINT_VALUE, RR_RATIO,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
 from assets_config import ENABLED_ASSETS
@@ -160,13 +161,15 @@ async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
                 continue
 
             signal = analyse_asset(
-                asset_name      = asset_name,
-                asset_config    = asset_config,
-                candles         = candles,
-                prev_long       = _prev_long.get(epic, False),
-                prev_short      = _prev_short.get(epic, False),
-                risk_amount     = RISK_AMOUNT,
-                donchian_length = DONCHIAN_LENGTH,
+                asset_name          = asset_name,
+                asset_config        = asset_config,
+                candles             = candles,
+                prev_long           = _prev_long.get(epic, False),
+                prev_short          = _prev_short.get(epic, False),
+                risk_amount         = RISK_AMOUNT,
+                donchian_length     = DONCHIAN_LENGTH,
+                global_point_value  = POINT_VALUE,
+                global_rr_ratio     = RR_RATIO,
             )
 
             # Update previous signal state for anti-doublon

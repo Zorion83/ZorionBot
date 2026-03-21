@@ -17,7 +17,8 @@ from brokers.base_broker import BaseBroker, BrokerError
 
 logger = logging.getLogger(__name__)
 
-IG_BASE_URL = "https://api.ig.com/gateway/deal"
+IG_LIVE_URL = "https://api.ig.com/gateway/deal"
+IG_DEMO_URL = "https://demo-api.ig.com/gateway/deal"
 
 
 class IGBroker(BaseBroker):
@@ -27,6 +28,7 @@ class IGBroker(BaseBroker):
         self._identifier = identifier
         self._password   = password
         self._demo       = demo
+        self._base_url   = IG_DEMO_URL if demo else IG_LIVE_URL
         self._cst        = ""
         self._token      = ""
         self._client     = httpx.AsyncClient(timeout=30.0)
@@ -63,7 +65,7 @@ class IGBroker(BaseBroker):
         }
         try:
             resp = await self._client.post(
-                f"{IG_BASE_URL}/session",
+                f"{self._base_url}/session",
                 json=payload,
                 headers=headers,
             )
@@ -82,7 +84,7 @@ class IGBroker(BaseBroker):
     async def disconnect(self) -> None:
         try:
             await self._client.delete(
-                f"{IG_BASE_URL}/session",
+                f"{self._base_url}/session",
                 headers=self._headers(),
             )
         except Exception as e:
@@ -92,7 +94,7 @@ class IGBroker(BaseBroker):
             logger.info("Disconnected from IG Markets")
 
     async def get_candles(self, symbol: str, count: int, timeframe: str = "MINUTE_30") -> List[dict]:
-        url     = f"{IG_BASE_URL}/prices/{symbol}"
+        url     = f"{self._base_url}/prices/{symbol}"
         params  = {"resolution": timeframe, "max": count, "pageSize": 0}
         headers = {**self._headers(), "Version": "3"}
         try:
@@ -120,7 +122,7 @@ class IGBroker(BaseBroker):
     async def get_account_balance(self) -> float:
         try:
             resp = await self._client.get(
-                f"{IG_BASE_URL}/accounts",
+                f"{self._base_url}/accounts",
                 headers=self._headers(),
             )
             resp.raise_for_status()
@@ -134,7 +136,7 @@ class IGBroker(BaseBroker):
     async def get_open_positions(self) -> List[dict]:
         try:
             resp = await self._client.get(
-                f"{IG_BASE_URL}/positions/otc",
+                f"{self._base_url}/positions/otc",
                 headers={**self._headers(), "Version": "2"},
             )
             resp.raise_for_status()
@@ -183,7 +185,7 @@ class IGBroker(BaseBroker):
         }
         try:
             resp = await self._client.post(
-                f"{IG_BASE_URL}/positions/otc",
+                f"{self._base_url}/positions/otc",
                 json=payload,
                 headers={**self._headers(), "Version": "2"},
             )
@@ -197,3 +199,26 @@ class IGBroker(BaseBroker):
 
         deal_ref = resp.json().get("dealReference", "?")
         logger.info("%s order on %s placed — dealRef: %s", direction, symbol, deal_ref)
+
+        # Confirm deal acceptance via /confirms
+        try:
+            confirm_resp = await self._client.get(
+                f"{self._base_url}/confirms/{deal_ref}",
+                headers=self._headers(),
+            )
+            confirm_resp.raise_for_status()
+            confirm     = confirm_resp.json()
+            deal_status = confirm.get("dealStatus", "UNKNOWN")
+            if deal_status != "ACCEPTED":
+                reason = confirm.get("reason", "unknown reason")
+                raise BrokerError(
+                    f"{direction} order on {symbol} not accepted: {deal_status} — {reason}"
+                )
+            logger.info(
+                "%s order on %s confirmed — dealId: %s",
+                direction, symbol, confirm.get("dealId", "?"),
+            )
+        except BrokerError:
+            raise
+        except Exception as e:
+            logger.warning("Could not confirm dealRef %s: %s", deal_ref, e)
