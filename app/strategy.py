@@ -1,29 +1,30 @@
 """
-strategy.py — LONG/SHORT signal logic for Donchian V1.1.
+strategy.py — LONG/SHORT signal logic for Donchian V1.1 (Heiken Ashi).
 
 Faithful translation of the Pine Script strategy.
 Candle indexing: candles[-1] = signal candle (last closed), candles[-2] = previous.
+Signal conditions use Heiken Ashi values; entry/SL use raw prices.
 
 LONG conditions (all must be true):
-  - any(l <= lower for l in lows[-3:])   — price touched LOWER band in last 3 candles
-  - closes[-1] > opens[-1]               — signal candle is bullish
-  - closes[-1] > highs[-2]               — close breaks previous candle's high
-  - opens[-1] < limitLow                 — open is in buy zone
-  - zlmacd < 0                           — bearish context (mean reversion filter)
-  - not prev_long                        — anti-doublon
+  - any(hl <= lower for hl in ha_lows[-3:])   — HA touched LOWER band in last 3 candles
+  - ha_closes[-1] > ha_opens[-1]               — HA signal candle is bullish
+  - ha_closes[-1] > ha_highs[-2]               — HA close breaks previous HA high
+  - ha_opens[-1] < limitLow                    — HA open is in buy zone
+  - zlmacd < 0                                 — bearish context (mean reversion filter)
+  - not prev_long                              — anti-doublon
 
 SHORT conditions (symmetric):
-  - any(h >= upper for h in highs[-3:])  — price touched UPPER band in last 3 candles
-  - closes[-1] < opens[-1]               — signal candle is bearish
-  - closes[-1] < lows[-2]               — close breaks previous candle's low
-  - opens[-1] > limitHigh               — open is in sell zone
-  - zlmacd > 0                           — bullish context (mean reversion filter)
-  - not prev_short                       — anti-doublon
+  - any(hh >= upper for hh in ha_highs[-3:])  — HA touched UPPER band in last 3 candles
+  - ha_closes[-1] < ha_opens[-1]               — HA signal candle is bearish
+  - ha_closes[-1] < ha_lows[-2]                — HA close breaks previous HA low
+  - ha_opens[-1] > limitHigh                   — HA open is in sell zone
+  - zlmacd > 0                                 — bullish context (mean reversion filter)
+  - not prev_short                             — anti-doublon
 """
 import logging
 from typing import Optional, List, Dict
 
-from indicators import donchian_channel, zlmacd
+from indicators import donchian_channel, zlmacd, heiken_ashi
 import risk as risk_module
 
 logger = logging.getLogger(__name__)
@@ -79,27 +80,29 @@ def analyse_asset(
         logger.debug("%s: zlmacd unavailable — %s", asset_name, e)
         return None
 
-    # ── Common conditions ─────────────────────────────────────────
-    touched_upper = any(h >= upper for h in highs[-3:])
-    touched_lower = any(l <= lower for l in lows[-3:])
+    ha_opens, ha_highs, ha_lows, ha_closes = heiken_ashi(opens, highs, lows, closes)
+
+    # ── Common conditions (HA-based) ──────────────────────────────
+    touched_upper = any(hh >= upper for hh in ha_highs[-3:])
+    touched_lower = any(hl <= lower for hl in ha_lows[-3:])
 
     # ── LONG signal ───────────────────────────────────────────────
     raw_long = (
-        touched_lower                      # price touched LOWER band
-        and closes[-1] > opens[-1]         # bullish signal candle
-        and closes[-1] > highs[-2]         # close breaks previous high
-        and opens[-1]  < limitLow          # open in buy zone
-        and macd_value < 0                 # ZL-MACD filter
+        touched_lower                              # HA touched LOWER band
+        and ha_closes[-1] > ha_opens[-1]           # bullish HA candle
+        and ha_closes[-1] > ha_highs[-2]           # HA close breaks previous HA high
+        and ha_opens[-1]  < limitLow               # HA open in buy zone
+        and macd_value < 0                         # ZL-MACD filter
     )
     long_signal = raw_long and not prev_long
 
     # ── SHORT signal ──────────────────────────────────────────────
     raw_short = (
-        touched_upper                      # price touched UPPER band
-        and closes[-1] < opens[-1]         # bearish signal candle
-        and closes[-1] < lows[-2]          # close breaks previous low
-        and opens[-1]  > limitHigh         # open in sell zone
-        and macd_value > 0                 # ZL-MACD filter
+        touched_upper                              # HA touched UPPER band
+        and ha_closes[-1] < ha_opens[-1]           # bearish HA candle
+        and ha_closes[-1] < ha_lows[-2]            # HA close breaks previous HA low
+        and ha_opens[-1]  > limitHigh              # HA open in sell zone
+        and macd_value > 0                         # ZL-MACD filter
     )
     short_signal = raw_short and not prev_short
 

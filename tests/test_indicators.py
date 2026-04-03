@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 import pytest
-from indicators import donchian_channel, zlmacd
+from indicators import donchian_channel, zlmacd, heiken_ashi
 
 
 class TestDonchianChannel:
@@ -61,3 +61,42 @@ class TestZlMacd:
     def test_requires_sufficient_candles(self):
         with pytest.raises(ValueError):
             zlmacd([100.0] * 10)   # too few candles (min 52)
+
+
+class TestHeikenAshi:
+    def test_first_candle_values(self):
+        # haOpen[0] = (O+C)/2 = (100+103)/2 = 101.5
+        # haClose[0] = (O+H+L+C)/4 = (100+105+95+103)/4 = 100.75
+        # haHigh[0] = max(105, 101.5, 100.75) = 105
+        # haLow[0]  = min(95, 101.5, 100.75) = 95
+        ha_opens, ha_highs, ha_lows, ha_closes = heiken_ashi(
+            [100.0], [105.0], [95.0], [103.0]
+        )
+        assert ha_opens[0]  == pytest.approx(101.5)
+        assert ha_closes[0] == pytest.approx(100.75)
+        assert ha_highs[0]  == pytest.approx(105.0)
+        assert ha_lows[0]   == pytest.approx(95.0)
+
+    def test_second_candle_open_is_recursive(self):
+        # haOpen[1] = (haOpen[0] + haClose[0]) / 2 = (101.5 + 100.75) / 2 = 101.125
+        ha_opens, _, _, ha_closes = heiken_ashi(
+            [100.0, 102.0], [105.0, 108.0], [95.0, 98.0], [103.0, 106.0]
+        )
+        assert ha_opens[1] == pytest.approx(101.125)
+
+    def test_convergence_after_many_identical_candles(self):
+        """After many identical candles haOpen converges to haClose."""
+        n = 200
+        ha_opens, _, _, ha_closes = heiken_ashi(
+            [100.0] * n, [101.0] * n, [99.0] * n, [100.0] * n
+        )
+        assert ha_closes[-1] == pytest.approx(100.0)
+        assert abs(ha_opens[-1] - 100.0) < 0.001
+
+    def test_raises_on_empty_input(self):
+        with pytest.raises(ValueError):
+            heiken_ashi([], [], [], [])
+
+    def test_raises_on_mismatched_lengths(self):
+        with pytest.raises(ValueError):
+            heiken_ashi([100.0] * 3, [101.0] * 3, [99.0] * 3, [100.0] * 2)

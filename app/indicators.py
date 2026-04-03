@@ -10,6 +10,40 @@ No external dependencies.
 """
 
 
+def heiken_ashi(opens: list, highs: list, lows: list, closes: list) -> tuple:
+    """
+    Compute Heiken Ashi OHLC series from raw candle data.
+
+    HA Close = (O + H + L + C) / 4
+    HA Open  = (prev HA Open + prev HA Close) / 2  [recursive; seed = (O[0]+C[0])/2]
+    HA High  = max(High, HA Open, HA Close)
+    HA Low   = min(Low,  HA Open, HA Close)
+
+    Returns:
+        (ha_opens, ha_highs, ha_lows, ha_closes) — four lists of floats, same length as inputs
+    """
+    n = len(opens)
+    if n == 0:
+        raise ValueError("heiken_ashi: inputs must not be empty")
+    if not (n == len(highs) == len(lows) == len(closes)):
+        raise ValueError(
+            f"heiken_ashi: all input lists must have the same length "
+            f"(got {n}, {len(highs)}, {len(lows)}, {len(closes)})"
+        )
+
+    ha_closes = [(opens[i] + highs[i] + lows[i] + closes[i]) / 4.0 for i in range(n)]
+
+    ha_opens = [0.0] * n
+    ha_opens[0] = (opens[0] + closes[0]) / 2.0
+    for i in range(1, n):
+        ha_opens[i] = (ha_opens[i - 1] + ha_closes[i - 1]) / 2.0
+
+    ha_highs = [max(highs[i], ha_opens[i], ha_closes[i]) for i in range(n)]
+    ha_lows  = [min(lows[i],  ha_opens[i], ha_closes[i]) for i in range(n)]
+
+    return ha_opens, ha_highs, ha_lows, ha_closes
+
+
 def _ema_series(values: list, period: int) -> list:
     """
     Compute the full EMA series for a list of values.
