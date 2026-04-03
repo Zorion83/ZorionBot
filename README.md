@@ -1,6 +1,6 @@
 # DonchianBot
 
-Bot de trading autonome basé sur la stratégie **Donchian Channel V1.1** (traduction fidèle du Pine Script TradingView).
+Bot de trading autonome basé sur la stratégie **Donchian Channel V1.1 — Heiken Ashi** (traduction fidèle du Pine Script TradingView).
 
 - Timeframe : **M30**
 - Directions : **LONG et SHORT**
@@ -12,19 +12,19 @@ Bot de trading autonome basé sur la stratégie **Donchian Channel V1.1** (tradu
 
 ## Stratégie
 
-Le bot détecte des signaux de retournement en bordure du canal de Donchian, filtrés par un Zero Lag MACD.
+Le bot détecte des signaux de retournement en bordure du canal de Donchian. Les conditions utilisent les valeurs **Heiken Ashi** (HA) pour filtrer le bruit ; l'entrée et le stop restent sur les prix bruts.
 
 **Signal LONG** — toutes les conditions doivent être vraies :
 
 | Condition | Description |
 |-----------|-------------|
-| Touche la bande basse | Une des 3 dernières bougies a touché le bas du canal |
-| Bougie haussière | La bougie signal clôture au-dessus de son ouverture |
-| Breakout | Le close dépasse le high de la bougie précédente |
-| Zone d'achat | L'ouverture se situe sous le premier quartile (limitLow) |
+| Touche la bande basse (HA) | haLow d'une des 3 dernières bougies ≤ bande basse |
+| Bougie HA haussière | haClose > haOpen sur la bougie signal |
+| Breakout HA | haClose dépasse le haHigh de la bougie précédente |
+| Zone d'achat (HA) | haOpen se situe sous le premier quartile (limitLow) |
 | ZL-MACD < 0 | Contexte baissier — filtre retournement |
 
-**Signal SHORT** : symétrique (bande haute, bougie baissière, ZL-MACD > 0).
+**Signal SHORT** : symétrique (bande haute, bougie HA baissière, ZL-MACD > 0).
 
 **Gestion des positions :**
 - Entry = high[-2] (LONG) ou low[-2] (SHORT)
@@ -169,7 +169,7 @@ DonchianBot/
 │   ├── main.py               # Boucle principale M30
 │   ├── config.py             # Lecture des variables .env
 │   ├── assets_config.py      # ⚙️ Liste des actifs à remplir
-│   ├── indicators.py         # Donchian Channel + ZL-MACD
+│   ├── indicators.py         # Donchian Channel + ZL-MACD + Heiken Ashi
 │   ├── strategy.py           # Logique des signaux LONG/SHORT
 │   ├── risk.py               # Calcul taille de position et TP
 │   ├── brokers/
@@ -177,7 +177,7 @@ DonchianBot/
 │   │   └── ig_broker.py      # Implémentation IG Markets
 │   ├── telegram_notifier.py  # Notifications Telegram
 │   └── requirements.txt
-├── tests/                    # Suite de tests (30 tests)
+├── tests/                    # Suite de tests (35 tests)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example              # ⚙️ Modèle de configuration
@@ -257,7 +257,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-30 tests couvrent les indicateurs, le calcul du risque, la stratégie et les notifications.
+35 tests couvrent les indicateurs (dont Heiken Ashi), le calcul du risque, la stratégie et les notifications.
 
 ---
 
