@@ -4,12 +4,10 @@ Copy .env.example → .env and fill in values before starting.
 """
 import os
 
-# ── Broker ────────────────────────────────────────────────────────
-BROKER         = os.environ.get("BROKER", "ig")
-IG_API_KEY     = os.environ.get("IG_API_KEY", "")
-IG_IDENTIFIER  = os.environ.get("IG_IDENTIFIER", "")
-IG_PASSWORD    = os.environ.get("IG_PASSWORD", "")
-DEMO_MODE      = os.environ.get("DEMO_MODE", "true").lower() == "true"
+# ── Broker (Alpaca Markets) ───────────────────────────────────────
+DEMO_MODE         = os.environ.get("DEMO_MODE", "true").lower() == "true"
+ALPACA_API_KEY    = os.environ.get("ALPACA_API_KEY", "")
+ALPACA_API_SECRET = os.environ.get("ALPACA_API_SECRET", "")
 
 # ── Telegram ──────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")

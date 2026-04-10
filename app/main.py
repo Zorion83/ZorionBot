@@ -11,14 +11,14 @@ import os
 from datetime import datetime, timezone
 
 from config import (
-    IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD, DEMO_MODE,
+    ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     RISK_AMOUNT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
     POINT_VALUE, RR_RATIO,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
 from assets_config import ENABLED_ASSETS
-from brokers.ig_broker import IGBroker
+from brokers.alpaca_broker import AlpacaBroker
 from brokers.base_broker import BrokerError
 from strategy import analyse_asset
 from telegram_notifier import TelegramNotifier
@@ -220,11 +220,11 @@ async def main() -> None:
     logger.info("║  Mode : %-6s               ║", "DEMO" if DEMO_MODE else "LIVE")
     logger.info("╚══════════════════════════════╝")
 
-    if not IG_API_KEY or "VOTRE" in IG_API_KEY:
-        logger.critical("IG_API_KEY not configured in .env — stopping.")
+    if not ALPACA_API_KEY:
+        logger.critical("ALPACA_API_KEY not configured in .env — stopping.")
         return
 
-    broker   = IGBroker(IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD, DEMO_MODE)
+    broker = AlpacaBroker(ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE)
     telegram = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
     await telegram.send_test_message()
