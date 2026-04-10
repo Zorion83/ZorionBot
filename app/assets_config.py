@@ -1,40 +1,35 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# assets_config.py — Asset configuration for DonchianBot
-#
-# Fill this file with the assets to monitor before starting the bot.
+# assets_config.py — Asset configuration for DonchianBot (Alpaca Markets)
 #
 # Required fields per asset:
-#   "symbol"      : IG Markets epic for the instrument
-#                   → Find it in the IG interface: click a market
-#                     then "Information" > "Epic"
-#                   Examples:
-#                     DAX      → "IX.D.DAX.IFMM.IP"
-#                     NAS100   → "IX.D.NASDAQ.IFD.IP"
-#                     Gold CFD → "CS.D.CFEGOLD.CFE.IP"
+#   "symbol"      : Ticker Alpaca (ex: "SPY", "QQQ")
 #
-#   "point_value" : Value of one point in account currency
-#                   → Overrides the global POINT_VALUE from .env
-#                   → Check the IG product details for this value
-#                   Examples: 1.0 (standard CFD), 25.0 (DAX Mini)
+#   "point_value" : Valeur d'un point en devise du compte (USD)
+#                   → Pour les ETFs US : 1.0 (1 action = 1 point = $1)
+#                   → Surcharge la valeur globale POINT_VALUE du .env
 #
-#   "rr_ratio"    : Risk/Reward ratio for Take Profit
-#                   → Overrides the global RR_RATIO from .env
-#                   Example: 2.0 → TP placed at 2× SL distance
+#   "rr_ratio"    : Ratio Risque/Rendement pour le Take Profit
+#                   → Surcharge la valeur globale RR_RATIO du .env
+#                   → Exemple : 2.0 = TP placé à 2× la distance du SL
 #
-#   "enabled"     : True = asset monitored, False = ignored
+#   "enabled"     : True = actif surveillé, False = ignoré
 #
-# Priority rule: if "point_value" or "rr_ratio" is set in the asset dict,
-# it overrides the global value from .env; otherwise the global value is used.
+# Priority rule: la valeur par actif est prioritaire sur la valeur globale .env
 # ──────────────────────────────────────────────────────────────────────────────
 
 ASSETS = {
-    # Example (modify/replace with your assets):
-    # "DAX": {
-    #     "symbol":      "IX.D.DAX.IFMM.IP",
-    #     "point_value": 1.0,
-    #     "rr_ratio":    2.0,
-    #     "enabled":     False,
-    # },
+    "SP500": {
+        "symbol":      "SPY",   # SPDR S&P 500 ETF Trust
+        "point_value": 1.0,
+        "rr_ratio":    2.0,
+        "enabled":     True,
+    },
+    "QQQ": {
+        "symbol":      "QQQ",   # Invesco QQQ Trust (Nasdaq 100)
+        "point_value": 1.0,
+        "rr_ratio":    2.0,
+        "enabled":     True,
+    },
 }
 
 ENABLED_ASSETS = {k: v for k, v in ASSETS.items() if v.get("enabled", False)}
