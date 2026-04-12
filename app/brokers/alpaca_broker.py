@@ -11,6 +11,7 @@ Alpaca Trading API:
 Documentation: https://docs.alpaca.markets/reference/trading-api
 """
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import httpx
@@ -69,14 +70,45 @@ class AlpacaBroker(BaseBroker):
         await self._client.aclose()
         logger.info("Disconnected from Alpaca Markets")
 
-    async def get_candles(self, symbol: str, count: int, timeframe: str = "30Min") -> List[dict]:
-        url    = f"{ALPACA_DATA_URL}/v2/stocks/bars"
-        params = {
-            "symbols":   symbol,
-            "timeframe": timeframe,
-            "limit":     count,
-            "sort":      "asc",
-        }
+    async def get_candles(self, symbol: str, count: int, timeframe: str = "30Min",
+                          start: str = "") -> List[dict]:
+        """
+        Fetch candles for a symbol.
+
+        - Without `start`: fetches the most recent `count` bars (sort=desc then reversed).
+        - With `start`: fetches up to `count` bars AFTER the given ISO timestamp (sort=asc).
+        """
+        is_crypto = "/" in symbol
+        if is_crypto:
+            url = f"{ALPACA_DATA_URL}/v1beta3/crypto/us/bars"
+            tf  = "30T"   # crypto uses T (minutes) notation
+        else:
+            url = f"{ALPACA_DATA_URL}/v2/stocks/bars"
+            tf  = timeframe
+
+        if start:
+            # Incremental / catch-up fetch: bars starting from `start` onwards
+            params = {
+                "symbols":   symbol,
+                "timeframe": tf,
+                "limit":     count,
+                "start":     start,
+                "sort":      "asc",
+            }
+        else:
+            # Full fetch: most recent `count` bars.
+            # Alpaca returns 0 bars without a `start` parameter (defaults to today only).
+            # Fix: use a wide lookback window + sort=desc to always get the N most recent bars.
+            lookback_days = 60 if is_crypto else 400   # crypto 24/7, stocks weekends/holidays
+            far_back = (datetime.now(timezone.utc) - timedelta(days=lookback_days))
+            params = {
+                "symbols":   symbol,
+                "timeframe": tf,
+                "limit":     count,
+                "start":     far_back.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "sort":      "desc",
+            }
+
         try:
             resp = await self._client.get(url, params=params, headers=self._headers())
             resp.raise_for_status()
@@ -89,6 +121,8 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError(f"Network error fetching candles for {symbol}: {e}") from e
 
         bars = resp.json().get("bars", {}).get(symbol, [])
+        if not start:
+            bars = list(reversed(bars))   # desc → asc (oldest first)
         return [
             {
                 "time":  bar["t"],
@@ -126,12 +160,45 @@ class AlpacaBroker(BaseBroker):
         positions = []
         for pos in resp.json():
             positions.append({
-                "epic":      pos.get("symbol", ""),
-                "direction": "BUY" if pos.get("side") == "long" else "SELL",
-                "size":      float(pos.get("qty", 0)),
-                "deal_id":   pos.get("asset_id", ""),
+                "epic":          pos.get("symbol", ""),
+                "direction":     "BUY" if pos.get("side") == "long" else "SELL",
+                "size":          float(pos.get("qty", 0)),
+                "deal_id":       pos.get("asset_id", ""),
+                "entry_price":   float(pos.get("avg_entry_price", 0)),
+                "current_price": float(pos.get("current_price", 0)),
+                "unrealized_pl": float(pos.get("unrealized_pl", 0)),
             })
         return positions
+
+    async def get_closed_orders_since(self, symbol: str, after_iso: str) -> List[dict]:
+        """Fetch filled orders for a symbol after the given ISO timestamp."""
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}/v2/orders",
+                params={
+                    "status":    "filled",
+                    "symbols":   symbol,
+                    "after":     after_iso,
+                    "limit":     10,
+                    "direction": "desc",
+                },
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning("get_closed_orders_since failed for %s: %s", symbol, e)
+            return []
+
+        return [
+            {
+                "symbol":            o.get("symbol", ""),
+                "side":              o.get("side", ""),
+                "filled_avg_price":  float(o.get("filled_avg_price") or 0),
+                "filled_qty":        float(o.get("filled_qty") or 0),
+            }
+            for o in resp.json()
+            if o.get("status") == "filled"
+        ]
 
     async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
         await self._place_order(symbol, size, "buy", sl, tp)

@@ -18,7 +18,7 @@ DONCHIAN_LENGTH   = int(os.environ.get("DONCHIAN_LENGTH", "100"))
 LOOKBACK_CANDLES  = int(os.environ.get("LOOKBACK_CANDLES", "500"))
 
 # ── Risk ──────────────────────────────────────────────────────────
-RISK_AMOUNT  = float(os.environ.get("RISK_AMOUNT", "50.0"))
+RISK_PCT     = float(os.environ.get("RISK_PCT", "0.005"))   # 0.5 % du solde par trade
 POINT_VALUE  = float(os.environ.get("POINT_VALUE", "1.0"))
 RR_RATIO     = float(os.environ.get("RR_RATIO", "2.0"))
 

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from config import (
     ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-    RISK_AMOUNT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
+    RISK_PCT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
     POINT_VALUE, RR_RATIO,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
@@ -45,6 +45,10 @@ _CACHE_FILE = os.path.join(DATA_DIR, "candle_cache.json")
 _prev_long:  dict = {}   # {epic: bool}
 _prev_short: dict = {}   # {epic: bool}
 
+# ── Position tracking (closed trade detection) ────────────────────
+_prev_positions: dict = {}   # {symbol: {direction, entry_price, qty}}
+_last_cycle_iso: str  = ""   # ISO timestamp of last cycle (for order lookup)
+
 
 def _load_disk_cache() -> None:
     if not os.path.exists(_CACHE_FILE):
@@ -69,7 +73,7 @@ def _save_disk_cache() -> None:
         logger.warning("Error writing disk cache: %s", e)
 
 
-async def get_fresh_candles(broker: IGBroker, epic: str) -> list:
+async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
     """3-level candle cache: full fetch → catch-up → incremental."""
     if epic not in _candle_cache:
         # Level 1: full initial fetch
@@ -81,23 +85,28 @@ async def get_fresh_candles(broker: IGBroker, epic: str) -> list:
             logger.info("Cache initialised — %s: %d candles", epic, len(candles))
         except BrokerError as e:
             if e.status_code == 403:
-                logger.warning("IG quota exceeded for %s — asset skipped", epic)
+                logger.warning("Alpaca quota exceeded for %s — asset skipped", epic)
                 return []
             raise
 
     elif epic not in _startup_done:
-        # Level 2: catch-up after disk cache load
+        # Level 2: catch-up after disk cache load — fetch from last known bar onwards
         try:
-            new_candles = await broker.get_candles(epic, 10)
+            existing   = _candle_cache[epic]
+            last_start = existing[-1]["time"] if existing else ""
+            new_candles = await broker.get_candles(epic, 1000, start=last_start)
             _startup_done.add(epic)
             if new_candles:
-                existing    = _candle_cache[epic]
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
                 if added:
                     _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
-            logger.info("Cache caught up — %s", epic)
+                    logger.info("Cache caught up — %s: +%d candle(s)", epic, len(added))
+                else:
+                    logger.info("Cache caught up — %s (already up to date)", epic)
+            else:
+                logger.info("Cache caught up — %s (no new data)", epic)
         except BrokerError as e:
             if e.status_code == 403:
                 logger.warning("Quota exceeded for %s — using disk cache", epic)
@@ -106,16 +115,18 @@ async def get_fresh_candles(broker: IGBroker, epic: str) -> list:
                 raise
 
     else:
-        # Level 3: incremental update each cycle
+        # Level 3: incremental update — fetch from last known bar onwards
         try:
-            new_candles = await broker.get_candles(epic, 3)
+            existing   = _candle_cache[epic]
+            last_start = existing[-1]["time"] if existing else ""
+            new_candles = await broker.get_candles(epic, 3, start=last_start)
             if new_candles:
-                existing    = _candle_cache[epic]
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
                 if added:
                     _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
+                    logger.info("Cache updated — %s: +%d candle(s)", epic, len(added))
         except BrokerError as e:
             if e.status_code == 403:
                 logger.warning("Quota exceeded for %s — analysing from cache", epic)
@@ -132,19 +143,62 @@ def seconds_until_next_m30() -> float:
     return max(float(remaining + 5), 5.0)
 
 
-async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
+async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
     """Run one analysis cycle. Returns number of signals fired."""
+    global _prev_positions, _last_cycle_iso
+
     now = datetime.now(timezone.utc)
     logger.info("═══ Cycle %s ═══", now.strftime("%Y-%m-%d %H:%M UTC"))
 
-    # Fetch balance as a connectivity check and for future risk gating
+    # Fetch balance — used for connectivity check and dynamic risk sizing
     balance = await broker.get_account_balance()
     if not balance:
         logger.warning("Balance unavailable — cycle cancelled")
         return 0
 
+    risk_amount = round(balance * RISK_PCT, 2)
+    logger.info("Balance: $%.2f | Risk per trade: $%.2f (%.1f%%)",
+                balance, risk_amount, RISK_PCT * 100)
+
     open_positions = await broker.get_open_positions()
     open_epics     = {p["epic"] for p in open_positions}
+
+    # ── Detect closed positions ───────────────────────────────────
+    current_epics = set(open_epics)
+    for symbol, pos_data in list(_prev_positions.items()):
+        if symbol not in current_epics and _last_cycle_iso:
+            try:
+                closed_orders = await broker.get_closed_orders_since(symbol, _last_cycle_iso)
+                closing_side  = "sell" if pos_data["direction"] == "BUY" else "buy"
+                closing_fill  = next(
+                    (o for o in closed_orders if o["side"] == closing_side), None
+                )
+                if closing_fill:
+                    exit_price  = closing_fill["filled_avg_price"]
+                    entry_price = pos_data["entry_price"]
+                    qty         = pos_data["qty"]
+                    if pos_data["direction"] == "BUY":
+                        pnl = (exit_price - entry_price) * qty
+                    else:
+                        pnl = (entry_price - exit_price) * qty
+                    logger.info(
+                        "Trade closed — %s %s | entry=%.2f exit=%.2f P&L=%.2f",
+                        pos_data["direction"], symbol, entry_price, exit_price, pnl
+                    )
+                    await telegram.send_trade_closed(symbol, pos_data["direction"], pnl, DEMO_MODE)
+            except Exception as e:
+                logger.warning("Could not process closed trade for %s: %s", symbol, e)
+
+    # Update position tracking for next cycle
+    _prev_positions = {
+        p["epic"]: {
+            "direction":   p["direction"],
+            "entry_price": p.get("entry_price", 0),
+            "qty":         p["size"],
+        }
+        for p in open_positions
+    }
+    _last_cycle_iso = now.isoformat()
 
     signals_found = 0
 
@@ -166,7 +220,7 @@ async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
                 candles             = candles,
                 prev_long           = _prev_long.get(epic, False),
                 prev_short          = _prev_short.get(epic, False),
-                risk_amount         = RISK_AMOUNT,
+                risk_amount         = risk_amount,
                 donchian_length     = DONCHIAN_LENGTH,
                 global_point_value  = POINT_VALUE,
                 global_rr_ratio     = RR_RATIO,
@@ -237,10 +291,10 @@ async def main() -> None:
             connected = True
             break
         except BrokerError as e:
-            logger.error("Attempt %d/3 — IG connection failed: %s", attempt, e)
+            logger.error("Attempt %d/3 — Alpaca connection failed: %s", attempt, e)
             await telegram.send_error("Startup", f"Attempt {attempt}/3 — {e}")
             if attempt == 3:
-                logger.critical("Cannot connect to IG — stopping.")
+                logger.critical("Cannot connect to Alpaca — stopping.")
             else:
                 await asyncio.sleep(60)
 

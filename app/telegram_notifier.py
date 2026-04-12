@@ -49,18 +49,47 @@ class TelegramNotifier:
         mode_tag  = "[DEMO] " if demo else ""
         await self._send(
             f"{direction} {mode_tag}<b>{signal['asset_name']}</b>\n"
-            f"Entry: {signal['entry_price']:.2f}\n"
-            f"SL: {signal['sl_price']:.2f}\n"
-            f"TP: {signal['tp_price']:.2f}\n"
-            f"Size: {signal['qty']:.2f}"
+            f"Entry : {signal['entry_price']:.2f}\n"
+            f"SL    : {signal['sl_price']:.2f}\n"
+            f"TP    : {signal['tp_price']:.2f}\n"
+            f"Size  : {signal['qty']:.2f}"
+        )
+
+    async def send_trade_closed(
+        self, symbol: str, direction: str, pnl: float, demo: bool
+    ) -> None:
+        emoji        = "💰" if pnl >= 0 else "💸"
+        result       = "WIN" if pnl >= 0 else "LOSS"
+        direction_str = "LONG" if direction == "BUY" else "SHORT"
+        mode_tag     = "[DEMO] " if demo else ""
+        pnl_str      = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
+        await self._send(
+            f"{emoji} <b>Trade closed {mode_tag}{symbol}</b>\n"
+            f"Direction : {direction_str}\n"
+            f"P&L       : {pnl_str}\n"
+            f"Result    : <b>{result}</b>"
         )
 
     async def send_error(self, context: str, message: str) -> None:
         await self._send(f"❌ <b>Error — {context}</b>\n{message}")
 
     async def send_daily_summary(self, trades_today: int, open_positions: list) -> None:
-        await self._send(
-            f"📊 <b>DonchianBot Daily Summary</b>\n"
-            f"Trades today: {trades_today}\n"
-            f"Open positions: {len(open_positions)}"
-        )
+        lines = [f"📊 <b>DonchianBot — Daily Summary</b>", f"Trades today: {trades_today}"]
+
+        if open_positions:
+            lines.append(f"\n<b>Open positions ({len(open_positions)}):</b>")
+            for pos in open_positions:
+                direction = "🚀 LONG" if pos["direction"] == "BUY" else "🔻 SHORT"
+                pnl       = pos.get("unrealized_pl", 0)
+                pnl_str   = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
+                entry     = pos.get("entry_price", 0)
+                current   = pos.get("current_price", 0)
+                lines.append(
+                    f"• {direction} {pos['epic']}\n"
+                    f"  Entry: {entry:.2f} → Now: {current:.2f}\n"
+                    f"  P&L flottant: {pnl_str}"
+                )
+        else:
+            lines.append("Open positions: 0")
+
+        await self._send("\n".join(lines))

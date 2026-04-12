@@ -106,6 +106,22 @@ def analyse_asset(
     )
     short_signal = raw_short and not prev_short
 
+    # Crypto is long-only on Alpaca — discard SHORT signals
+    if asset_config.get("crypto", False) and short_signal:
+        logger.debug("%s: SHORT signal ignored (crypto = long-only)", asset_name)
+        short_signal = False
+
+    logger.info(
+        "%s | upper=%.2f lower=%.2f limitH=%.2f limitL=%.2f | "
+        "haC=%.2f haO=%.2f haPrevH=%.2f haPrevL=%.2f | macd=%.4f | "
+        "touchedU=%s touchedL=%s | LONG=%s SHORT=%s",
+        asset_name, upper, lower, limitHigh, limitLow,
+        ha_closes[-1], ha_opens[-1], ha_highs[-2], ha_lows[-2],
+        macd_value,
+        touched_upper, touched_lower,
+        long_signal, short_signal,
+    )
+
     if not long_signal and not short_signal:
         return None
 

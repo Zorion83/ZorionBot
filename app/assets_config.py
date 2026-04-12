@@ -23,12 +23,21 @@ ASSETS = {
         "point_value": 1.0,
         "rr_ratio":    2.0,
         "enabled":     True,
+        "crypto":      False,
     },
     "QQQ": {
         "symbol":      "QQQ",   # Invesco QQQ Trust (Nasdaq 100)
         "point_value": 1.0,
         "rr_ratio":    2.0,
         "enabled":     True,
+        "crypto":      False,
+    },
+    "BTC": {
+        "symbol":      "BTC/USD",  # Bitcoin — long-only (Alpaca crypto)
+        "point_value": 1.0,
+        "rr_ratio":    2.0,
+        "enabled":     True,
+        "crypto":      True,       # → endpoint /v1beta3/crypto/us/bars, timeframe 30T
     },
 }
 
