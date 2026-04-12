@@ -59,6 +59,18 @@ class TelegramNotifier:
         url    = TELEGRAM_UPDATES.format(token=self._token)
         offset = 0
 
+        # Drain les messages en attente au démarrage (évite de re-traiter d'anciens messages)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, params={"offset": -1, "timeout": 0})
+                updates = resp.json().get("result", [])
+                if updates:
+                    offset = updates[-1]["update_id"] + 1
+                    logger.info("Telegram : %d message(s) ignoré(s) au démarrage (offset=%d)",
+                                len(updates), offset)
+        except Exception as e:
+            logger.warning("Telegram drain startup failed: %s", e)
+
         while True:
             try:
                 async with httpx.AsyncClient(timeout=40.0) as client:
