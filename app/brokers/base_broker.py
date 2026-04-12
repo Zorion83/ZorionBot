@@ -32,9 +32,13 @@ class BaseBroker(ABC):
         """Cleanly close the broker session."""
 
     @abstractmethod
-    async def get_candles(self, symbol: str, count: int, timeframe: str = "MINUTE_30") -> List[dict]:
+    async def get_candles(self, symbol: str, count: int, timeframe: str = "30Min",
+                          start: str = "") -> List[dict]:
         """
-        Fetch the last `count` closed candles for the symbol.
+        Fetch candles for the symbol.
+
+        Without `start`: returns the most recent `count` bars.
+        With `start` (ISO 8601): returns up to `count` bars AFTER that timestamp.
 
         Returns:
             List of dicts with keys:
