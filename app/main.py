@@ -49,6 +49,9 @@ _prev_short: dict = {}   # {epic: bool}
 _prev_positions: dict = {}   # {symbol: {direction, entry_price, qty}}
 _last_cycle_iso: str  = ""   # ISO timestamp of last cycle (for order lookup)
 
+# ── Pause / commandes Telegram ────────────────────────────────────
+_paused: bool = False         # True = cycles tournent mais ordres bloqués
+
 
 def _load_disk_cache() -> None:
     if not os.path.exists(_CACHE_FILE):
@@ -134,6 +137,90 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
                 raise
 
     return _candle_cache.get(epic, [])
+
+
+async def handle_telegram_command(
+    command: str,
+    args: list,
+    broker: AlpacaBroker,
+    telegram: TelegramNotifier,
+) -> None:
+    """Gère les commandes reçues via Telegram."""
+    global _paused
+
+    if command == "/help":
+        await telegram._send(
+            "🤖 <b>DonchianBot — Commandes</b>\n\n"
+            "/status  — Solde, positions, état\n"
+            "/logs    — Dernières lignes de log\n"
+            "/pause   — Suspendre les nouveaux ordres\n"
+            "/resume  — Reprendre les signaux\n"
+            "/help    — Afficher ce message"
+        )
+
+    elif command == "/status":
+        try:
+            balance   = await broker.get_account_balance()
+            positions = await broker.get_open_positions()
+            now_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            risk_amt  = round(balance * RISK_PCT, 2)
+            mode_tag  = "[DEMO] " if DEMO_MODE else ""
+
+            lines = [
+                f"🤖 <b>{mode_tag}DonchianBot</b>",
+                f"⏰ {now_str}",
+                f"💰 Balance   : ${balance:,.2f}",
+                f"🎯 Risk/trade : ${risk_amt:.2f} ({RISK_PCT * 100:.1f}%)",
+                f"⏸ Pause     : {'OUI ⚠️' if _paused else 'non'}",
+            ]
+            if positions:
+                lines.append(f"\n📈 <b>Positions ({len(positions)}) :</b>")
+                for p in positions:
+                    d   = "🚀 LONG" if p["direction"] == "BUY" else "🔻 SHORT"
+                    pnl = p.get("unrealized_pl", 0)
+                    lines.append(
+                        f"• {d} {p['epic']}\n"
+                        f"  {p.get('entry_price',0):.2f} → {p.get('current_price',0):.2f}"
+                        f"  ({'+'if pnl>=0 else ''}{pnl:.2f}$)"
+                    )
+            else:
+                lines.append("\n📊 Aucune position ouverte")
+            await telegram._send("\n".join(lines))
+        except Exception as e:
+            await telegram._send(f"❌ Erreur /status : {e}")
+
+    elif command == "/logs":
+        try:
+            n = int(args[0]) if args else 20
+            n = min(max(n, 5), 50)
+            with open(LOG_FILE, encoding="utf-8") as f:
+                lines = f.readlines()
+            tail = "".join(lines[-n:]).strip()
+            if len(tail) > 3800:
+                tail = "…\n" + tail[-3800:]
+            await telegram._send(f"<pre>{tail}</pre>")
+        except Exception as e:
+            await telegram._send(f"❌ Erreur /logs : {e}")
+
+    elif command == "/pause":
+        _paused = True
+        logger.info("Bot mis en PAUSE via commande Telegram")
+        await telegram._send(
+            "⏸ <b>Bot en pause</b>\n"
+            "Les cycles d'analyse continuent mais aucun nouvel ordre ne sera placé.\n"
+            "👉 /resume pour reprendre."
+        )
+
+    elif command == "/resume":
+        _paused = False
+        logger.info("Bot REPRIS via commande Telegram")
+        await telegram._send("▶️ <b>Bot actif</b> — signaux et ordres réactivés.")
+
+    else:
+        await telegram._send(
+            f"❓ Commande inconnue : <code>{command}</code>\n"
+            "👉 /help pour la liste."
+        )
 
 
 def seconds_until_next_m30() -> float:
@@ -235,6 +322,18 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
 
             signals_found += 1
 
+            # Pause active → log le signal mais ne place pas d'ordre
+            if _paused:
+                logger.info(
+                    "%s: signal %s détecté — BOT EN PAUSE, ordre non envoyé",
+                    asset_name, signal["direction"]
+                )
+                await telegram._send(
+                    f"⏸ Signal {signal['direction']} <b>{asset_name}</b> détecté\n"
+                    f"Bot en pause — ordre non placé."
+                )
+                continue
+
             # Place the order
             try:
                 if signal["direction"] == "BUY":
@@ -308,6 +407,15 @@ async def main() -> None:
     last_summary = None
     trades_today = 0
 
+    # ── Tâche de fond : écoute des commandes Telegram ─────────────
+    async def _command_listener():
+        await telegram.poll_commands(
+            lambda cmd, args: handle_telegram_command(cmd, args, broker, telegram)
+        )
+
+    command_task = asyncio.create_task(_command_listener())
+    logger.info("Écoute des commandes Telegram démarrée")
+
     try:
         while True:
             try:
@@ -336,6 +444,11 @@ async def main() -> None:
                 await asyncio.sleep(60)
 
     finally:
+        command_task.cancel()
+        try:
+            await command_task
+        except asyncio.CancelledError:
+            pass
         await broker.disconnect()
         logger.info("DonchianBot stopped.")
 
