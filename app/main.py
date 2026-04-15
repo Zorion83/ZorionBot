@@ -372,6 +372,24 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                         pos_data["direction"], symbol, entry_price, exit_price, pnl
                     )
                     await telegram.send_trade_closed(symbol, pos_data["direction"], pnl, DEMO_MODE)
+
+                    # ── Enregistrer dans le journal mensuel ───────
+                    cache_entry = _signal_cache.pop(symbol, {})
+                    _add_to_journal(
+                        _journal,
+                        symbol      = symbol,
+                        asset_name  = cache_entry.get("asset_name", symbol),
+                        direction   = pos_data["direction"],
+                        entry_price = entry_price,
+                        exit_price  = exit_price,
+                        sl_price    = cache_entry.get("sl", 0.0),
+                        tp_price    = cache_entry.get("tp", 0.0),
+                        qty         = qty,
+                        pnl         = pnl,
+                        closed_at   = now.isoformat(),
+                    )
+                    _save_journal(_journal)
+                    _save_state({"open_signal_cache": _signal_cache})
             except Exception as e:
                 logger.warning("Could not process closed trade for %s: %s", symbol, e)
 
@@ -447,6 +465,17 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                         comment=f"DonchianBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
+                # ── Mémoriser SL/TP pour affichage futur ─────────
+                _signal_cache[epic] = {
+                    "sl":         signal["sl_price"],
+                    "tp":         signal["tp_price"],
+                    "qty":        signal["qty"],
+                    "entry":      signal["entry_price"],
+                    "asset_name": asset_name,
+                    "direction":  signal["direction"],
+                    "opened_at":  now.isoformat(),
+                }
+                _save_state({"open_signal_cache": _signal_cache})
                 await telegram.send_signal(signal, DEMO_MODE)
 
             except BrokerError as e:
