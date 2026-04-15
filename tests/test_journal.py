@@ -2,7 +2,6 @@ import sys, os, json, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 import pytest
-from unittest.mock import patch
 from datetime import datetime, timezone
 
 
@@ -27,7 +26,6 @@ class TestJournalRotation:
         journal = {"month": old_month, "next_id": 4, "trades": [{"id": 3}]}
 
         import main as m
-        m.DATA_DIR = str(tmp_path)
         m._JOURNAL_FILE = str(tmp_path / "trade_journal.json")
         result = m._rotate_journal_if_needed(journal)
 

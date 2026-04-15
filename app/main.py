@@ -77,7 +77,7 @@ def _rotate_journal_if_needed(journal: dict) -> dict:
     if journal.get("month") == current_month:
         return journal
     old_month = journal.get("month", "unknown")
-    archive_path = os.path.join(DATA_DIR, f"trade_journal_{old_month}.json")
+    archive_path = os.path.join(os.path.dirname(_JOURNAL_FILE), f"trade_journal_{old_month}.json")
     try:
         with open(archive_path, "w") as f:
             json.dump(journal, f, indent=2)
@@ -102,6 +102,7 @@ def _load_journal() -> dict:
 
 def _save_journal(journal: dict) -> None:
     try:
+        os.makedirs(os.path.dirname(_JOURNAL_FILE), exist_ok=True)
         with open(_JOURNAL_FILE, "w") as f:
             json.dump(journal, f, indent=2)
     except Exception as e:
