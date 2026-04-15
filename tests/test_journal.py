@@ -6,17 +6,6 @@ from unittest.mock import patch
 from datetime import datetime, timezone
 
 
-# ── Helpers importés depuis main après monkey-patch du DATA_DIR ──
-
-def _get_journal_fns(tmp_dir):
-    """Retourne les fonctions journal avec DATA_DIR patché vers tmp_dir."""
-    import importlib
-    import main as m
-    m.DATA_DIR = tmp_dir
-    m._JOURNAL_FILE = os.path.join(tmp_dir, "trade_journal.json")
-    # reload pour réinitialiser les globals
-    return m._load_journal, m._save_journal, m._add_to_journal, m._rotate_journal_if_needed
-
 
 class TestJournalRotation:
     def test_no_rotation_same_month(self, tmp_path):
@@ -31,7 +20,7 @@ class TestJournalRotation:
 
         assert result["month"] == current
         assert result["next_id"] == 2          # inchangé
-        assert not (tmp_path / "trade_journal_2025-01.json").exists()
+        assert len(list(tmp_path.glob("trade_journal_2???-??.json"))) == 0
 
     def test_rotation_on_new_month(self, tmp_path):
         old_month = "2025-01"
