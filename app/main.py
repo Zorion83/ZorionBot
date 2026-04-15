@@ -41,6 +41,104 @@ _candle_cache: dict = {}
 _startup_done: set  = set()
 _CACHE_FILE = os.path.join(DATA_DIR, "candle_cache.json")
 
+# ── Bot state persistence (daily summary dedup) ───────────────────
+_STATE_FILE = os.path.join(DATA_DIR, "bot_state.json")
+
+
+def _load_state() -> dict:
+    try:
+        if os.path.exists(_STATE_FILE):
+            with open(_STATE_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning("Error reading state file: %s", e)
+    return {}
+
+
+def _save_state(updates: dict) -> None:
+    try:
+        state = _load_state()
+        state.update(updates)
+        os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
+        with open(_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logger.warning("Error writing state file: %s", e)
+
+# ── Trade journal (historique mensuel) ───────────────────────────
+_JOURNAL_FILE = os.path.join(DATA_DIR, "trade_journal.json")
+_journal: dict = {}          # chargé dans main()
+_signal_cache: dict = {}     # {symbol: {sl, tp, qty, entry, asset_name, direction, opened_at}}
+
+
+def _rotate_journal_if_needed(journal: dict) -> dict:
+    """Si le journal est d'un mois passé, l'archive et retourne un nouveau."""
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    if journal.get("month") == current_month:
+        return journal
+    old_month = journal.get("month", "unknown")
+    archive_path = os.path.join(DATA_DIR, f"trade_journal_{old_month}.json")
+    try:
+        with open(archive_path, "w") as f:
+            json.dump(journal, f, indent=2)
+        logger.info("Journal archivé — %s (%d trades)", old_month, len(journal.get("trades", [])))
+    except Exception as e:
+        logger.warning("Error archiving journal: %s", e)
+    return {"month": current_month, "next_id": 1, "trades": []}
+
+
+def _load_journal() -> dict:
+    """Charge le journal depuis le disque, avec rotation mensuelle si nécessaire."""
+    default = {"month": datetime.now(timezone.utc).strftime("%Y-%m"), "next_id": 1, "trades": []}
+    try:
+        if os.path.exists(_JOURNAL_FILE):
+            with open(_JOURNAL_FILE) as f:
+                data = json.load(f)
+            return _rotate_journal_if_needed(data)
+    except Exception as e:
+        logger.warning("Error reading journal: %s", e)
+    return default
+
+
+def _save_journal(journal: dict) -> None:
+    try:
+        with open(_JOURNAL_FILE, "w") as f:
+            json.dump(journal, f, indent=2)
+    except Exception as e:
+        logger.warning("Error writing journal: %s", e)
+
+
+def _add_to_journal(
+    journal: dict,
+    symbol: str,
+    asset_name: str,
+    direction: str,
+    entry_price: float,
+    exit_price: float,
+    sl_price: float,
+    tp_price: float,
+    qty: float,
+    pnl: float,
+    closed_at: str,
+) -> int:
+    """Ajoute un trade clôturé au journal. Retourne l'ID assigné."""
+    trade_id = journal["next_id"]
+    journal["trades"].append({
+        "id":          trade_id,
+        "symbol":      symbol,
+        "asset_name":  asset_name,
+        "direction":   direction,
+        "entry_price": round(entry_price, 4),
+        "exit_price":  round(exit_price, 4),
+        "sl_price":    round(sl_price, 4),
+        "tp_price":    round(tp_price, 4),
+        "qty":         round(qty, 6),
+        "pnl":         round(pnl, 2),
+        "closed_at":   closed_at,
+    })
+    journal["next_id"] = trade_id + 1
+    return trade_id
+
 # ── Previous signal tracking (anti-doublon) ───────────────────────
 _prev_long:  dict = {}   # {epic: bool}
 _prev_short: dict = {}   # {epic: bool}
@@ -404,8 +502,10 @@ async def main() -> None:
     await telegram.send_startup(DEMO_MODE, list(ENABLED_ASSETS.keys()))
     _load_disk_cache()
 
-    last_summary = None
+    bot_state    = _load_state()
+    last_summary = bot_state.get("last_summary")
     trades_today = 0
+    logger.info("Bot state loaded — last_summary: %s", last_summary)
 
     # ── Tâche de fond : écoute des commandes Telegram ─────────────
     async def _command_listener():
@@ -432,6 +532,7 @@ async def main() -> None:
                     await telegram.send_daily_summary(trades_today, positions)
                     last_summary = today_str
                     trades_today = 0
+                    _save_state({"last_summary": last_summary})
 
                 signals = await run_cycle(broker, telegram)
                 trades_today += signals
