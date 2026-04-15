@@ -505,6 +505,14 @@ async def main() -> None:
 
     bot_state    = _load_state()
     last_summary = bot_state.get("last_summary")
+
+    global _journal, _signal_cache
+    _journal = _load_journal()
+    _signal_cache = bot_state.get("open_signal_cache", {})
+    logger.info(
+        "Journal chargé — %s : %d trade(s) | Signal cache : %d entrée(s)",
+        _journal["month"], len(_journal["trades"]), len(_signal_cache),
+    )
     trades_today = 0
     logger.info("Bot state loaded — last_summary: %s", last_summary)
 
