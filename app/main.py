@@ -566,8 +566,14 @@ async def main() -> None:
 
                 # Daily summary at 08:00 UTC
                 if now.hour == 8 and now.minute < 31 and last_summary != today_str:
-                    positions = await broker.get_open_positions()
-                    await telegram.send_daily_summary(trades_today, positions)
+                    positions    = await broker.get_open_positions()
+                    closed_today = [
+                        t for t in _journal.get("trades", [])
+                        if t["closed_at"][:10] == today_str
+                    ]
+                    await telegram.send_daily_summary(
+                        trades_today, positions, closed_today, _signal_cache
+                    )
                     last_summary = today_str
                     trades_today = 0
                     _save_state({"last_summary": last_summary})

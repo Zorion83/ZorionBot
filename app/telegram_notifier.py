@@ -198,7 +198,13 @@ class TelegramNotifier:
     async def send_error(self, context: str, message: str) -> None:
         await self._send(f"❌ <b>Erreur — {context}</b>\n{message}")
 
-    async def send_daily_summary(self, trades_today: int, open_positions: list) -> None:
+    async def send_daily_summary(
+        self,
+        trades_today:   int,
+        open_positions: list,
+        closed_today:   list,
+        signal_cache:   dict,
+    ) -> None:
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 
@@ -209,18 +215,19 @@ class TelegramNotifier:
 
         if open_positions:
             lines.append(f"\n<b>Positions ouvertes ({len(open_positions)}) :</b>")
-            for pos in open_positions:
-                direction = "🚀 LONG" if pos["direction"] == "BUY" else "🔻 SHORT"
-                pnl       = pos.get("unrealized_pl", 0)
-                pnl_str   = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
-                entry     = pos.get("entry_price", 0)
-                current   = pos.get("current_price", 0)
-                lines.append(
-                    f"• {direction} {pos['epic']}\n"
-                    f"  Entrée : {entry:.2f} → Actuel : {current:.2f}\n"
-                    f"  P&amp;L flottant : {pnl_str}"
-                )
+            for idx, pos in enumerate(open_positions, 1):
+                cache_entry = signal_cache.get(pos["epic"])
+                lines.append(_format_open_position(idx, pos, cache_entry))
         else:
             lines.append("Aucune position ouverte")
+
+        if closed_today:
+            lines.append(f"\n<b>Trades clôturés aujourd'hui ({len(closed_today)}) :</b>")
+            for t in closed_today:
+                emoji  = "✅" if t["pnl"] >= 0 else "❌"
+                d_str  = "LONG" if t["direction"] == "BUY" else "SHORT"
+                pnl_s  = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
+                time_s = t["closed_at"][11:16]
+                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']} | {pnl_s} | {time_s}")
 
         await self._send("\n".join(lines))

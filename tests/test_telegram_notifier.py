@@ -157,3 +157,51 @@ class TestFormatOpenPosition:
         assert "90" in result    # SL shown
         assert "100" in result   # TP shown
         assert "%" not in result  # no progress line
+
+
+class TestSendDailySummaryExtended:
+    def test_closed_today_section_appears(self):
+        """send_daily_summary doit afficher la section trades clôturés si non vide."""
+        t = TelegramNotifier("token", "chat")
+        captured = []
+        async def fake_send(text): captured.append(text)
+        t._send = fake_send
+
+        closed_today = [
+            {"id": 1, "symbol": "BTC/USD", "direction": "BUY",
+             "pnl": 210.5, "closed_at": "2026-04-16T10:30:00Z"},
+        ]
+        open_positions = []
+        signal_cache   = {}
+        asyncio.run(t.send_daily_summary(1, open_positions, closed_today, signal_cache))
+
+        assert len(captured) == 1
+        assert "#1" in captured[0]
+        assert "BTC/USD" in captured[0]
+        assert "+210.50" in captured[0]
+
+    def test_no_closed_today_section_when_empty(self):
+        """Pas de section clôtures si aucun trade aujourd'hui."""
+        t = TelegramNotifier("token", "chat")
+        captured = []
+        async def fake_send(text): captured.append(text)
+        t._send = fake_send
+
+        asyncio.run(t.send_daily_summary(0, [], [], {}))
+        assert "clôturés" not in captured[0]
+
+    def test_open_positions_use_format_helper(self):
+        """Les positions ouvertes passent par _format_open_position."""
+        t = TelegramNotifier("token", "chat")
+        captured = []
+        async def fake_send(text): captured.append(text)
+        t._send = fake_send
+
+        pos = {
+            "epic": "BTC/USD", "direction": "BUY",
+            "entry_price": 83500.0, "current_price": 84200.0, "unrealized_pl": 210.5,
+        }
+        cache = {"sl": 81000.0, "tp": 88500.0, "direction": "BUY"}
+        asyncio.run(t.send_daily_summary(0, [pos], [], {"BTC/USD": cache}))
+        assert "#1" in captured[0]
+        assert "81000" in captured[0]   # SL visible
