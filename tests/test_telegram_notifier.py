@@ -148,3 +148,12 @@ class TestFormatOpenPosition:
         cache = {"sl": -1.0, "tp": 10.0, "direction": "BUY"}
         result = _format_open_position(1, pos, cache_entry=cache)
         assert "100%" in result
+
+    def test_no_progress_when_tp_equals_entry(self):
+        from telegram_notifier import _format_open_position
+        pos   = self._make_pos(entry=100.0, current=110.0)
+        cache = {"sl": 90.0, "tp": 100.0, "direction": "BUY"}
+        result = _format_open_position(1, pos, cache_entry=cache)
+        assert "90" in result    # SL shown
+        assert "100" in result   # TP shown
+        assert "%" not in result  # no progress line

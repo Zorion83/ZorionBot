@@ -33,7 +33,7 @@ def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> s
     """
     direction = "🚀 LONG" if pos["direction"] == "BUY" else "🔻 SHORT"
     pnl       = pos.get("unrealized_pl", 0.0)
-    pnl_str   = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
+    pnl_str   = f"{'+'if pnl > 0 else ''}{pnl:.2f} $"
     entry     = pos.get("entry_price", 0.0)
     current   = pos.get("current_price", 0.0)
 
