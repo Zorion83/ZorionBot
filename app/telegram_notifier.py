@@ -11,12 +11,55 @@ Commandes supportées (depuis le chat configuré uniquement) :
 """
 import asyncio
 import logging
+from typing import Optional
 import httpx
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API     = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_UPDATES = "https://api.telegram.org/bot{token}/getUpdates"
+
+
+def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> str:
+    """
+    Formate une position ouverte avec numéro, SL/TP et barre de progression.
+
+    Args:
+        idx:         Numéro d'affichage (1, 2, 3…)
+        pos:         Dict retourné par get_open_positions() —
+                     clés : epic, direction, entry_price, current_price, unrealized_pl
+        cache_entry: Dict depuis _signal_cache — clés : sl, tp, direction
+                     None si la position a été ouverte avant la mise à jour du bot.
+    """
+    direction = "🚀 LONG" if pos["direction"] == "BUY" else "🔻 SHORT"
+    pnl       = pos.get("unrealized_pl", 0.0)
+    pnl_str   = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
+    entry     = pos.get("entry_price", 0.0)
+    current   = pos.get("current_price", 0.0)
+
+    lines = [
+        f"<b>#{idx} {direction} {pos['epic']}</b>",
+        f"   Entrée  : {entry:.2f} → Actuel : {current:.2f}",
+        f"   P&amp;L  : {pnl_str}",
+    ]
+
+    if cache_entry:
+        sl = cache_entry.get("sl", 0.0)
+        tp = cache_entry.get("tp", 0.0)
+        lines.append(f"   SL      : {sl:.2f}  |  TP : {tp:.2f}")
+        if tp != entry:
+            if pos["direction"] == "BUY":
+                prog = (current - entry) / (tp - entry) * 100.0
+            else:
+                prog = (entry - current) / (entry - tp) * 100.0
+            prog    = max(0.0, min(100.0, prog))
+            filled  = int(prog / 10)
+            bar     = "▓" * filled + "░" * (10 - filled)
+            lines.append(f"   Prog.   : {bar} {prog:.0f}% vers TP")
+    else:
+        lines.append("   SL/TP  : N/A")
+
+    return "\n".join(lines)
 
 
 class TelegramNotifier:
