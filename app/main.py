@@ -21,7 +21,7 @@ from assets_config import ENABLED_ASSETS
 from brokers.alpaca_broker import AlpacaBroker
 from brokers.base_broker import BrokerError
 from strategy import analyse_asset
-from telegram_notifier import TelegramNotifier
+from telegram_notifier import TelegramNotifier, _format_open_position
 
 # ── Logging ───────────────────────────────────────────────────────
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -250,7 +250,8 @@ async def handle_telegram_command(
     if command == "/help":
         await telegram._send(
             "🤖 <b>DonchianBot — Commandes</b>\n\n"
-            "/status  — Solde, positions, état\n"
+            "/status  — Solde, positions (SL/TP/progression)\n"
+            "/trades  — Journal mensuel des trades clôturés\n"
             "/logs    — Dernières lignes de log\n"
             "/pause   — Suspendre les nouveaux ordres\n"
             "/resume  — Reprendre les signaux\n"
@@ -274,14 +275,9 @@ async def handle_telegram_command(
             ]
             if positions:
                 lines.append(f"\n📈 <b>Positions ({len(positions)}) :</b>")
-                for p in positions:
-                    d   = "🚀 LONG" if p["direction"] == "BUY" else "🔻 SHORT"
-                    pnl = p.get("unrealized_pl", 0)
-                    lines.append(
-                        f"• {d} {p['epic']}\n"
-                        f"  {p.get('entry_price',0):.2f} → {p.get('current_price',0):.2f}"
-                        f"  ({'+'if pnl>=0 else ''}{pnl:.2f}$)"
-                    )
+                for idx, p in enumerate(positions, 1):
+                    cache_entry = _signal_cache.get(p["epic"])
+                    lines.append(_format_open_position(idx, p, cache_entry))
             else:
                 lines.append("\n📊 Aucune position ouverte")
             await telegram._send("\n".join(lines))
@@ -314,6 +310,56 @@ async def handle_telegram_command(
         _paused = False
         logger.info("Bot REPRIS via commande Telegram")
         await telegram._send("▶️ <b>Bot actif</b> — signaux et ordres réactivés.")
+
+    elif command == "/trades":
+        try:
+            trades = _journal.get("trades", [])
+            month  = _journal.get("month", "")
+
+            if not trades:
+                await telegram._send("📒 Aucun trade enregistré ce mois-ci.")
+                return
+
+            wins      = sum(1 for t in trades if t["pnl"] >= 0)
+            losses    = len(trades) - wins
+            total_pnl = sum(t["pnl"] for t in trades)
+            pnl_str   = f"{'+'if total_pnl > 0 else ''}{total_pnl:.2f} $"
+
+            month_names = {
+                "01": "Janvier", "02": "Février", "03": "Mars", "04": "Avril",
+                "05": "Mai", "06": "Juin", "07": "Juillet", "08": "Août",
+                "09": "Septembre", "10": "Octobre", "11": "Novembre", "12": "Décembre",
+            }
+            year, mo  = (month.split("-") + [""])[:2]
+            month_str = f"{month_names.get(mo, mo)} {year}"
+
+            lines = [
+                f"📒 <b>Trades — {month_str} · {len(trades)} trade(s)</b>",
+                f"Win : {wins} ✅  Loss : {losses} ❌  P&amp;L total : {pnl_str}",
+                "",
+            ]
+            for t in trades:
+                emoji  = "✅" if t["pnl"] >= 0 else "❌"
+                d_str  = "LONG " if t["direction"] == "BUY" else "SHORT"
+                pnl_s  = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
+                date_s = t["closed_at"][8:10] + "/" + t["closed_at"][5:7] + " " + t["closed_at"][11:16]
+                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']} | {pnl_s} | {date_s}")
+
+            text = "\n".join(lines)
+            if len(text) > 4000:
+                header  = "\n".join(lines[:3])
+                tail    = []
+                for line in reversed(lines[3:]):
+                    if len(header) + len("\n".join(tail)) + len(line) + 30 < 4000:
+                        tail.insert(0, line)
+                    else:
+                        break
+                skipped = len(trades) - len(tail)
+                text    = header + f"\n… (+{skipped} plus anciens)\n" + "\n".join(tail)
+
+            await telegram._send(text)
+        except Exception as e:
+            await telegram._send(f"❌ Erreur /trades : {e}")
 
     else:
         await telegram._send(
