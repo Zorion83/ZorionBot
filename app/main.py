@@ -368,6 +368,16 @@ async def handle_telegram_command(
         )
 
 
+def _is_stock_market_open() -> bool:
+    """Return True if US regular market hours are active (Mon-Fri, 13:30–20:00 UTC)."""
+    now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    market_open  = now.replace(hour=13, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=20, minute=0,  second=0, microsecond=0)
+    return market_open <= now < market_close
+
+
 def seconds_until_next_m30() -> float:
     """Return seconds until the next M30 candle closes, plus a 5s safety buffer."""
     now       = datetime.now(timezone.utc)
@@ -394,6 +404,46 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
 
     open_positions = await broker.get_open_positions()
     open_epics     = {p["epic"] for p in open_positions}
+
+    # ── TP/SL monitoring (tous actifs) ───────────────────────────
+    # Alpaca simple orders n'ont pas de SL/TP attachés.
+    # Le bot les surveille ici à chaque cycle pour tous les actifs.
+    for pos in open_positions:
+        epic = pos["epic"]
+        cache = _signal_cache.get(epic)
+        if not cache:
+            continue
+        current_price = pos.get("current_price", 0.0)
+        if current_price <= 0:
+            continue
+
+        tp_price  = cache.get("tp", 0.0)
+        sl_price  = cache.get("sl", 0.0)
+        direction = cache.get("direction", "BUY")
+
+        if direction == "BUY":
+            hit_tp = tp_price > 0 and current_price >= tp_price
+            hit_sl = sl_price > 0 and current_price <= sl_price
+        else:  # SELL / short
+            hit_tp = tp_price > 0 and current_price <= tp_price
+            hit_sl = sl_price > 0 and current_price >= sl_price
+
+        if hit_tp or hit_sl:
+            reason = (
+                f"TP={tp_price:,.2f} atteint (prix={current_price:,.2f})" if hit_tp
+                else f"SL={sl_price:,.2f} atteint (prix={current_price:,.2f})"
+            )
+            logger.info("TP/SL triggered — %s | %s | liquidation en cours", epic, reason)
+            try:
+                await broker.close_position(epic)
+                # Journal + Telegram close notification handled next cycle
+                # via _prev_positions detection + get_closed_orders_since()
+                await telegram._send(
+                    f"📊 <b>{epic}</b> — fermeture bot-managed\n{reason}"
+                )
+            except BrokerError as e:
+                logger.error("Erreur fermeture TP/SL %s: %s", epic, e)
+                await telegram.send_error(f"Close {epic}", str(e))
 
     # ── Detect closed positions ───────────────────────────────────
     current_epics = set(open_epics)
@@ -476,14 +526,32 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 global_rr_ratio     = RR_RATIO,
             )
 
-            # Update previous signal state for anti-doublon
-            _prev_long[epic]  = signal is not None and signal["direction"] == "BUY"
-            _prev_short[epic] = signal is not None and signal["direction"] == "SELL"
-
             if not signal:
+                # Pas de signal — réinitialiser les flags anti-doublon
+                _prev_long[epic]  = False
+                _prev_short[epic] = False
                 continue
 
-            signals_found += 1
+            # ── Market hours gate (stocks uniquement) ─────────────
+            # Alpaca rejette les ordres sur les actifs fractionnables
+            # (SPY, QQQ…) en dehors des heures de marché (lun-ven 13:30-20:00 UTC).
+            # Si hors horaires : on ne place pas l'ordre ET on ne touche pas aux
+            # flags anti-doublon, pour que le signal puisse se rejouer au prochain cycle.
+            is_crypto = asset_config.get("crypto", False)
+            if not is_crypto and not _is_stock_market_open():
+                logger.info(
+                    "%s: signal %s hors-marché — ordre reporté à l'ouverture (13:30 UTC)",
+                    asset_name, signal["direction"],
+                )
+                await telegram._send(
+                    f"⏰ Signal {signal['direction']} <b>{asset_name}</b> hors-marché\n"
+                    f"Ordre reporté à l'ouverture du marché (13:30 UTC)."
+                )
+                continue
+
+            # Signal actif et marché ouvert — marquer pour anti-doublon
+            _prev_long[epic]  = signal["direction"] == "BUY"
+            _prev_short[epic] = signal["direction"] == "SELL"
 
             # Pause active → log le signal mais ne place pas d'ordre
             if _paused:
@@ -511,7 +579,8 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                         comment=f"DonchianBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
-                # ── Mémoriser SL/TP pour affichage futur ─────────
+                # ── Ordre accepté : incrémenter le compteur et mémoriser SL/TP ──
+                signals_found += 1
                 _signal_cache[epic] = {
                     "sl":         signal["sl_price"],
                     "tp":         signal["tp_price"],

@@ -11,6 +11,7 @@ Alpaca Trading API:
 Documentation: https://docs.alpaca.markets/reference/trading-api
 """
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import List
 
@@ -200,11 +201,55 @@ class AlpacaBroker(BaseBroker):
             if o.get("status") == "filled"
         ]
 
+    async def _get_latest_price(self, symbol: str) -> float:
+        """Fetch the latest trade price for a symbol (stock or crypto)."""
+        is_crypto = "/" in symbol
+        try:
+            if is_crypto:
+                resp = await self._client.get(
+                    f"{ALPACA_DATA_URL}/v1beta3/crypto/us/latest/trades",
+                    params={"symbols": symbol},
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                return float(resp.json().get("trades", {}).get(symbol, {}).get("p", 0))
+            else:
+                resp = await self._client.get(
+                    f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/trades/latest",
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                return float(resp.json().get("trade", {}).get("p", 0))
+        except Exception as e:
+            logger.warning("_get_latest_price(%s) failed: %s", symbol, e)
+            return 0.0
+
     async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
         await self._place_order(symbol, size, "buy", sl, tp)
 
     async def open_short(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
         await self._place_order(symbol, size, "sell", sl, tp)
+
+    async def close_position(self, symbol: str) -> None:
+        """
+        Liquidate the entire open position for a symbol at market price.
+        Used for crypto positions where SL/TP are managed by the bot's main loop
+        (Alpaca does not support bracket orders for crypto).
+        """
+        encoded = symbol.replace("/", "%2F")
+        try:
+            resp = await self._client.delete(
+                f"{self._base_url}/v2/positions/{encoded}",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise BrokerError(
+                f"close_position {symbol} rejected ({e.response.status_code}): {e.response.text}"
+            ) from e
+        except httpx.RequestError as e:
+            raise BrokerError(f"Network error closing position {symbol}: {e}") from e
+        logger.info("Position %s liquidated via DELETE /v2/positions", symbol)
 
     async def _place_order(
         self,
@@ -214,19 +259,65 @@ class AlpacaBroker(BaseBroker):
         sl:     float,
         tp:     float,
     ) -> None:
+        is_crypto = "/" in symbol
+
+        if is_crypto:
+            # ── Crypto path ───────────────────────────────────────────
+            # Alpaca does NOT support bracket orders (order_class=otoco) for crypto.
+            # Use a simple market order; TP/SL are enforced by the bot's monitoring loop.
+            # Crypto supports fractional quantities — do NOT floor.
+            qty_crypto = round(size, 6)
+            if qty_crypto <= 0:
+                raise BrokerError(
+                    f"Computed qty <= 0 for {symbol} (size={size}) — skipping order"
+                )
+            payload = {
+                "symbol":        symbol,
+                "qty":           str(qty_crypto),
+                "side":          side,
+                "type":          "market",
+                "time_in_force": "gtc",
+                "order_class":   "simple",
+            }
+            try:
+                resp = await self._client.post(
+                    f"{self._base_url}/v2/orders",
+                    json=payload,
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise BrokerError(
+                    f"{side} order on {symbol} rejected ({e.response.status_code}): {e.response.text}"
+                ) from e
+            except httpx.RequestError as e:
+                raise BrokerError(f"Network error placing {side} order on {symbol}: {e}") from e
+
+            order_id = resp.json().get("id", "?")
+            logger.info(
+                "%s (crypto) order on %s placed — orderId: %s | SL=%.2f TP=%.2f [bot-managed]",
+                side, symbol, order_id, sl, tp,
+            )
+            return
+
+        # ── Stock path ────────────────────────────────────────────────
+        # Alpaca Paper Trading rejects bracket orders (GTC or otherwise) with
+        # error 42210000 for various internal reasons (fractional notional,
+        # margin checks, etc.). Use a simple market order instead; TP/SL are
+        # managed by the bot's monitoring loop (same approach as crypto).
+        #
+        # Stocks require whole-share quantities (no fractional GTC).
+        qty = math.floor(size)
+        if qty < 1:
+            raise BrokerError(f"Computed qty < 1 for {symbol} (size={size:.4f}) — skipping order")
+
         payload = {
             "symbol":        symbol,
-            "qty":           str(round(size, 2)),
+            "qty":           str(qty),
             "side":          side,
             "type":          "market",
-            "time_in_force": "gtc",
-            "order_class":   "bracket",
-            "take_profit": {
-                "limit_price": str(round(tp, 2)),
-            },
-            "stop_loss": {
-                "stop_price": str(round(sl, 2)),
-            },
+            "time_in_force": "day",
+            "order_class":   "simple",
         }
         try:
             resp = await self._client.post(
@@ -243,4 +334,7 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError(f"Network error placing {side} order on {symbol}: {e}") from e
 
         order_id = resp.json().get("id", "?")
-        logger.info("%s order on %s placed — orderId: %s", side, symbol, order_id)
+        logger.info(
+            "%s (stock) order on %s placed — orderId: %s | SL=%.2f TP=%.2f [bot-managed]",
+            side, symbol, order_id, sl, tp,
+        )

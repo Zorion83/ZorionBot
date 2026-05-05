@@ -81,3 +81,11 @@ class BaseBroker(ABC):
         Open a short (SELL) position.
         Raises BrokerError with descriptive message if the broker rejects the order.
         """
+
+    @abstractmethod
+    async def close_position(self, symbol: str) -> None:
+        """
+        Close an open position at market price (full liquidation).
+        Used for crypto positions where SL/TP cannot be attached to the entry order.
+        Raises BrokerError if the broker rejects the close.
+        """
