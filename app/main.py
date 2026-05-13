@@ -7,6 +7,7 @@ Timeframe: M30
 import asyncio
 import json
 import logging
+import math
 import os
 from datetime import datetime, timezone
 
@@ -552,6 +553,29 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             # Signal actif et marché ouvert — marquer pour anti-doublon
             _prev_long[epic]  = signal["direction"] == "BUY"
             _prev_short[epic] = signal["direction"] == "SELL"
+
+            # ── Plafond de taille (protection buying power) ───────
+            # qty = risk/sl_distance peut exploser si le SL est très proche.
+            # On plafonne le notionnel à 50 % du solde pour ne jamais
+            # dépasser le buying_power disponible (Alpaca = 2× le cash).
+            max_notional = balance * 0.5
+            notional     = signal["qty"] * signal["entry_price"]
+            if notional > max_notional:
+                if is_crypto:
+                    capped_qty = round(max_notional / signal["entry_price"], 6)
+                else:
+                    capped_qty = math.floor(max_notional / signal["entry_price"])
+                if capped_qty <= 0:
+                    logger.warning(
+                        "%s: qty après plafonnement = 0 — signal ignoré", asset_name
+                    )
+                    continue
+                logger.info(
+                    "%s: qty plafonnée %.4f → %.4f "
+                    "(notionnel $%.0f > max $%.0f = 50%% balance)",
+                    asset_name, signal["qty"], capped_qty, notional, max_notional,
+                )
+                signal = {**signal, "qty": capped_qty}
 
             # Pause active → log le signal mais ne place pas d'ordre
             if _paused:
