@@ -135,17 +135,31 @@ class AlpacaBroker(BaseBroker):
             for bar in bars
         ]
 
-    async def get_account_balance(self) -> float:
+    async def get_account_info(self) -> dict:
+        """Single call returning portfolio_value (equity) and cash (actual spendable USD).
+
+        Note: Alpaca's buying_power = 2× cash for margin accounts — do NOT use it
+        for notional caps. Use cash (= non_marginable_buying_power) instead, which
+        is the real USD available to spend on any order including crypto.
+        """
         try:
             resp = await self._client.get(
                 f"{self._base_url}/v2/account",
                 headers=self._headers(),
             )
             resp.raise_for_status()
-            return float(resp.json().get("portfolio_value", 0))
+            data = resp.json()
+            return {
+                "balance":       float(data.get("portfolio_value", 0)),
+                "buying_power":  float(data.get("cash", 0)),
+            }
         except Exception as e:
-            logger.warning("get_account_balance failed: %s", e)
-        return 0.0
+            logger.warning("get_account_info failed: %s", e)
+        return {"balance": 0.0, "buying_power": 0.0}
+
+    async def get_account_balance(self) -> float:
+        """Kept for backward compatibility — prefer get_account_info()."""
+        return (await self.get_account_info())["balance"]
 
     async def get_open_positions(self) -> List[dict]:
         try:
@@ -160,8 +174,14 @@ class AlpacaBroker(BaseBroker):
 
         positions = []
         for pos in resp.json():
+            symbol = pos.get("symbol", "")
+            # Alpaca returns crypto position symbols without the slash (e.g. "BTCUSD"),
+            # while orders/candles/asset_config use "BTC/USD". Re-insert it so this
+            # epic matches the one used everywhere else (open_epics check, signal cache).
+            if pos.get("asset_class") == "crypto" and "/" not in symbol and symbol.endswith("USD"):
+                symbol = symbol[:-3] + "/USD"
             positions.append({
-                "epic":          pos.get("symbol", ""),
+                "epic":          symbol,
                 "direction":     "BUY" if pos.get("side") == "long" else "SELL",
                 "size":          float(pos.get("qty", 0)),
                 "deal_id":       pos.get("asset_id", ""),
