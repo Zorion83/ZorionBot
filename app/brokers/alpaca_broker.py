@@ -256,10 +256,13 @@ class AlpacaBroker(BaseBroker):
         Used for crypto positions where SL/TP are managed by the bot's main loop
         (Alpaca does not support bracket orders for crypto).
         """
-        encoded = symbol.replace("/", "%2F")
+        # Alpaca's /v2/positions endpoint returns crypto symbols without the
+        # slash (e.g. "BTCUSD"), and DELETE expects that same bare form —
+        # not a URL-encoded "BTC%2FUSD", which 404s.
+        path_symbol = symbol.replace("/", "")
         try:
             resp = await self._client.delete(
-                f"{self._base_url}/v2/positions/{encoded}",
+                f"{self._base_url}/v2/positions/{path_symbol}",
                 headers=self._headers(),
             )
             resp.raise_for_status()
