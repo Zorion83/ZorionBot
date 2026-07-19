@@ -18,26 +18,36 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 ASSETS = {
+    # ── Stratégie Mean Reversion v5 sur IG Markets ────────────────
+    "GOLD": {
+        "symbol":        "CS.D.CFDGOLD.CFM.IP",  # Or au comptant Mini (10 oz/contrat)
+        "contract_size": 10.0,                   # 1 contrat = 10 oz ; 1 point = 1 $/oz
+        "currency_code": "USD",
+        "point_value":   10.0,                   # $ par point et par contrat
+        "enabled":       True,
+        "crypto":        False,
+    },
+    # ── Héritage Alpaca (désactivés depuis le passage à IG) ───────
     "SP500": {
-        "symbol":      "SPY",   # SPDR S&P 500 ETF Trust
+        "symbol":      "SPY",
         "point_value": 1.0,
         "rr_ratio":    2.0,
-        "enabled":     True,
+        "enabled":     False,
         "crypto":      False,
     },
     "QQQ": {
-        "symbol":      "QQQ",   # Invesco QQQ Trust (Nasdaq 100)
+        "symbol":      "QQQ",
         "point_value": 1.0,
         "rr_ratio":    2.0,
-        "enabled":     True,
+        "enabled":     False,
         "crypto":      False,
     },
     "BTC": {
-        "symbol":      "BTC/USD",  # Bitcoin — long-only (Alpaca crypto)
+        "symbol":      "BTC/USD",
         "point_value": 1.0,
         "rr_ratio":    2.0,
-        "enabled":     True,
-        "crypto":      True,       # → endpoint /v1beta3/crypto/us/bars, timeframe 30T
+        "enabled":     False,
+        "crypto":      True,
     },
 }
 

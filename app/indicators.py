@@ -82,6 +82,74 @@ def donchian_channel(highs: list, lows: list, length: int) -> tuple:
     return upper, lower, basis, limitHigh, limitLow
 
 
+def bollinger(closes: list, length: int = 20, std_mult: float = 1.5) -> tuple:
+    """
+    Bandes de Bollinger sur les `length` dernières clôtures.
+    Écart-type population (ddof=0), identique au backtest et à ta.stdev de Pine.
+
+    Returns:
+        (upper, lower, basis)
+    """
+    if len(closes) < length:
+        raise ValueError(f"bollinger requires at least {length} values, got {len(closes)}")
+    window = closes[-length:]
+    basis = sum(window) / length
+    var = sum((v - basis) ** 2 for v in window) / length
+    dev = std_mult * var ** 0.5
+    return basis + dev, basis - dev, basis
+
+
+def _rma_series(values: list, period: int) -> list:
+    """RMA (Wilder) : ewm alpha=1/period, seed = première valeur."""
+    alpha = 1.0 / period
+    result = [values[0]]
+    for v in values[1:]:
+        result.append(v * alpha + result[-1] * (1 - alpha))
+    return result
+
+
+def rsi(closes: list, length: int = 14) -> float:
+    """
+    RSI de Wilder (lissage RMA), identique à ta.rsi de Pine et au backtest.
+    """
+    if len(closes) < length + 1:
+        raise ValueError(f"rsi requires at least {length + 1} values, got {len(closes)}")
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gains.append(max(delta, 0.0))
+        losses.append(max(-delta, 0.0))
+    avg_gain = _rma_series(gains, length)[-1]
+    avg_loss = _rma_series(losses, length)[-1]
+    if avg_loss == 0:
+        return 100.0
+    return 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+
+
+def atr(highs: list, lows: list, closes: list, length: int = 14) -> float:
+    """
+    ATR de Wilder (True Range lissé RMA), identique à ta.atr de Pine et au backtest.
+    """
+    n = len(closes)
+    if n < length + 1:
+        raise ValueError(f"atr requires at least {length + 1} candles, got {n}")
+    trs = []
+    for i in range(1, n):
+        trs.append(max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        ))
+    return _rma_series(trs, length)[-1]
+
+
+def ema(closes: list, period: int) -> float:
+    """Dernière valeur de l'EMA classique (seed = première valeur)."""
+    if not closes:
+        raise ValueError("ema: input must not be empty")
+    return _ema_series(closes, period)[-1]
+
+
 def zlmacd(closes: list, fast: int = 12, slow: int = 26) -> float:
     """
     Zero Lag MACD = DEMA(fast) - DEMA(slow)
