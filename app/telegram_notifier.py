@@ -68,6 +68,10 @@ class TelegramNotifier:
         self._token   = token
         self._chat_id = chat_id
         self._enabled = bool(token and chat_id)
+        self._client  = httpx.AsyncClient(timeout=10.0)
+
+    async def close(self) -> None:
+        await self._client.aclose()
 
     # ── Envoi ─────────────────────────────────────────────────────
 
@@ -77,12 +81,11 @@ class TelegramNotifier:
             return
         url = TELEGRAM_API.format(token=self._token)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(url, json={
-                    "chat_id":    self._chat_id,
-                    "text":       text,
-                    "parse_mode": "HTML",
-                })
+            await self._client.post(url, json={
+                "chat_id":    self._chat_id,
+                "text":       text,
+                "parse_mode": "HTML",
+            })
         except Exception as e:
             logger.warning("Telegram send failed: %s", e)
 
@@ -104,25 +107,24 @@ class TelegramNotifier:
 
         # Drain les messages en attente au démarrage (évite de re-traiter d'anciens messages)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params={"offset": -1, "timeout": 0})
-                updates = resp.json().get("result", [])
-                if updates:
-                    offset = updates[-1]["update_id"] + 1
-                    logger.info("Telegram : %d message(s) ignoré(s) au démarrage (offset=%d)",
-                                len(updates), offset)
+            resp = await self._client.get(url, params={"offset": -1, "timeout": 0})
+            updates = resp.json().get("result", [])
+            if updates:
+                offset = updates[-1]["update_id"] + 1
+                logger.info("Telegram : %d message(s) ignoré(s) au démarrage (offset=%d)",
+                            len(updates), offset)
         except Exception as e:
             logger.warning("Telegram drain startup failed: %s", e)
 
+        poll_client = httpx.AsyncClient(timeout=40.0)
         while True:
             try:
-                async with httpx.AsyncClient(timeout=40.0) as client:
-                    resp = await client.get(url, params={
-                        "offset":          offset,
-                        "timeout":         30,
-                        "allowed_updates": ["message"],
-                    })
-                    data = resp.json()
+                resp = await poll_client.get(url, params={
+                    "offset":          offset,
+                    "timeout":         30,
+                    "allowed_updates": ["message"],
+                })
+                data = resp.json()
             except asyncio.CancelledError:
                 raise
             except Exception as e:

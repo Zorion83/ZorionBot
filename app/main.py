@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-main.py — DonchianBot main loop
-Strategy : Donchian Channel V1.1 (LONG + SHORT)
+main.py — Trading bot main loop
+Strategy : Mean Reversion XAUUSD v5 (BROKER=ig) ou Donchian V1.1 (BROKER=alpaca)
 Timeframe: M30
 """
 import asyncio
@@ -12,16 +12,21 @@ import os
 from datetime import datetime, timezone
 
 from config import (
-    ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE,
+    BROKER, ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE,
+    IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD,
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
     RISK_PCT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
     POINT_VALUE, RR_RATIO,
+    MR_BB_LEN, MR_BB_STD, MR_RSI_LEN, MR_RSI_LO, MR_EMA_LEN, MR_ATR_LEN,
+    MR_TP_ATR, MR_SL_ATR, MR_TIME_STOP, MR_SESS_START, MR_SESS_END,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
 from assets_config import ENABLED_ASSETS
 from brokers.alpaca_broker import AlpacaBroker
+from brokers.ig_broker import IGBroker
 from brokers.base_broker import BrokerError
 from strategy import analyse_asset
+from strategy_meanrev import analyse_meanrev
 from telegram_notifier import TelegramNotifier, _format_open_position
 
 # ── Logging ───────────────────────────────────────────────────────
@@ -394,14 +399,16 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
     logger.info("═══ Cycle %s ═══", now.strftime("%Y-%m-%d %H:%M UTC"))
 
     # Fetch balance — used for connectivity check and dynamic risk sizing
-    balance = await broker.get_account_balance()
+    account_info = await broker.get_account_info()
+    balance      = account_info["balance"]
+    buying_power = account_info["buying_power"]
     if not balance:
         logger.warning("Balance unavailable — cycle cancelled")
         return 0
 
     risk_amount = round(balance * RISK_PCT, 2)
-    logger.info("Balance: $%.2f | Risk per trade: $%.2f (%.1f%%)",
-                balance, risk_amount, RISK_PCT * 100)
+    logger.info("Balance: $%.2f | Buying power: $%.2f | Risk per trade: $%.2f (%.1f%%)",
+                balance, buying_power, risk_amount, RISK_PCT * 100)
 
     open_positions = await broker.get_open_positions()
     open_epics     = {p["epic"] for p in open_positions}
@@ -446,6 +453,34 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 logger.error("Erreur fermeture TP/SL %s: %s", epic, e)
                 await telegram.send_error(f"Close {epic}", str(e))
 
+    # ── Time stop (mean reversion) : clôture après MR_TIME_STOP barres ─
+    if BROKER == "ig":
+        for pos in open_positions:
+            epic  = pos["epic"]
+            cache = _signal_cache.get(epic)
+            opened_iso = (cache or {}).get("opened_at") or pos.get("created_at")
+            if not opened_iso:
+                continue
+            try:
+                opened_dt = datetime.fromisoformat(opened_iso.replace("Z", "+00:00"))
+                if opened_dt.tzinfo is None:
+                    opened_dt = opened_dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            bars_held = (now - opened_dt).total_seconds() / 1800.0
+            if bars_held >= MR_TIME_STOP:
+                logger.info("Time stop — %s ouvert depuis %.1f barres (max %d), clôture",
+                            epic, bars_held, MR_TIME_STOP)
+                try:
+                    await broker.close_position(epic)
+                    await telegram._send(
+                        f"⏱ <b>{epic}</b> — time stop ({MR_TIME_STOP} barres), "
+                        f"clôture au marché"
+                    )
+                except BrokerError as e:
+                    logger.error("Erreur time stop %s: %s", epic, e)
+                    await telegram.send_error(f"Time stop {epic}", str(e))
+
     # ── Detect closed positions ───────────────────────────────────
     current_epics = set(open_epics)
     for symbol, pos_data in list(_prev_positions.items()):
@@ -460,7 +495,10 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     exit_price  = closing_fill["filled_avg_price"]
                     entry_price = pos_data["entry_price"]
                     qty         = pos_data["qty"]
-                    if pos_data["direction"] == "BUY":
+                    if closing_fill.get("pnl") is not None:
+                        # IG fournit le P&L exact (tient compte de la taille de contrat)
+                        pnl = closing_fill["pnl"]
+                    elif pos_data["direction"] == "BUY":
                         pnl = (exit_price - entry_price) * qty
                     else:
                         pnl = (entry_price - exit_price) * qty
@@ -515,17 +553,35 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             if not candles:
                 continue
 
-            signal = analyse_asset(
-                asset_name          = asset_name,
-                asset_config        = asset_config,
-                candles             = candles,
-                prev_long           = _prev_long.get(epic, False),
-                prev_short          = _prev_short.get(epic, False),
-                risk_amount         = risk_amount,
-                donchian_length     = DONCHIAN_LENGTH,
-                global_point_value  = POINT_VALUE,
-                global_rr_ratio     = RR_RATIO,
-            )
+            if BROKER == "ig":
+                signal = analyse_meanrev(
+                    asset_name   = asset_name,
+                    asset_config = asset_config,
+                    candles      = candles,
+                    risk_amount  = risk_amount,
+                    bb_len       = MR_BB_LEN,
+                    bb_std       = MR_BB_STD,
+                    rsi_len      = MR_RSI_LEN,
+                    rsi_lo       = MR_RSI_LO,
+                    ema_len      = MR_EMA_LEN,
+                    atr_len      = MR_ATR_LEN,
+                    tp_atr       = MR_TP_ATR,
+                    sl_atr       = MR_SL_ATR,
+                    sess_start   = MR_SESS_START,
+                    sess_end     = MR_SESS_END,
+                )
+            else:
+                signal = analyse_asset(
+                    asset_name          = asset_name,
+                    asset_config        = asset_config,
+                    candles             = candles,
+                    prev_long           = _prev_long.get(epic, False),
+                    prev_short          = _prev_short.get(epic, False),
+                    risk_amount         = risk_amount,
+                    donchian_length     = DONCHIAN_LENGTH,
+                    global_point_value  = POINT_VALUE,
+                    global_rr_ratio     = RR_RATIO,
+                )
 
             if not signal:
                 # Pas de signal — réinitialiser les flags anti-doublon
@@ -539,7 +595,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             # Si hors horaires : on ne place pas l'ordre ET on ne touche pas aux
             # flags anti-doublon, pour que le signal puisse se rejouer au prochain cycle.
             is_crypto = asset_config.get("crypto", False)
-            if not is_crypto and not _is_stock_market_open():
+            if BROKER == "alpaca" and not is_crypto and not _is_stock_market_open():
                 logger.info(
                     "%s: signal %s hors-marché — ordre reporté à l'ouverture (13:30 UTC)",
                     asset_name, signal["direction"],
@@ -558,10 +614,13 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             # qty = risk/sl_distance peut exploser si le SL est très proche.
             # On plafonne le notionnel à 50 % du solde pour ne jamais
             # dépasser le buying_power disponible (Alpaca = 2× le cash).
-            max_notional = balance * 0.5
-            notional     = signal["qty"] * signal["entry_price"]
+            contract_size = float(asset_config.get("contract_size", 1.0))
+            max_notional  = buying_power * 0.95
+            notional      = signal["qty"] * signal["entry_price"] * contract_size
             if notional > max_notional:
-                if is_crypto:
+                if BROKER == "ig":
+                    capped_qty = round(max_notional / (signal["entry_price"] * contract_size), 1)
+                elif is_crypto:
                     capped_qty = round(max_notional / signal["entry_price"], 6)
                 else:
                     capped_qty = math.floor(max_notional / signal["entry_price"])
@@ -572,7 +631,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     continue
                 logger.info(
                     "%s: qty plafonnée %.4f → %.4f "
-                    "(notionnel $%.0f > max $%.0f = 50%% balance)",
+                    "(notionnel $%.0f > max $%.0f = 95%% buying_power)",
                     asset_name, signal["qty"], capped_qty, notional, max_notional,
                 )
                 signal = {**signal, "qty": capped_qty}
@@ -640,11 +699,18 @@ async def main() -> None:
     logger.info("║  Mode : %-6s               ║", "DEMO" if DEMO_MODE else "LIVE")
     logger.info("╚══════════════════════════════╝")
 
-    if not ALPACA_API_KEY:
-        logger.critical("ALPACA_API_KEY not configured in .env — stopping.")
-        return
-
-    broker = AlpacaBroker(ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE)
+    if BROKER == "ig":
+        if not (IG_API_KEY and IG_IDENTIFIER and IG_PASSWORD):
+            logger.critical("IG_API_KEY / IG_IDENTIFIER / IG_PASSWORD manquants dans .env — stop.")
+            return
+        broker = IGBroker(IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD, DEMO_MODE)
+        logger.info("Broker : IG Markets | Stratégie : Mean Reversion XAUUSD v5 | Risque : %.1f%%",
+                    RISK_PCT * 100)
+    else:
+        if not ALPACA_API_KEY:
+            logger.critical("ALPACA_API_KEY not configured in .env — stopping.")
+            return
+        broker = AlpacaBroker(ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE)
     telegram = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
     await telegram.send_test_message()
@@ -734,6 +800,7 @@ async def main() -> None:
         except asyncio.CancelledError:
             pass
         await broker.disconnect()
+        await telegram.close()
         logger.info("DonchianBot stopped.")
 
 
