@@ -1,5 +1,7 @@
 # DonchianBot — Document de transfert vers nouvelle machine
 
+> ⚠️ **Renommage du projet en cours (2026-08)** : `DonchianBot` devient `ZorionBot`. Ce document décrit encore l'infrastructure réelle du Pi sous l'ancien nom (`donchianbot`, `/srv/data/donchianbot`) — ces chemins ne changeront qu'à la migration planifiée pour septembre 2026. Voir [`docs/PI_MIGRATION_ZORIONBOT.md`](./PI_MIGRATION_ZORIONBOT.md).
+
 > **Usage** : Ce document est destiné à Claude Code pour reconfigurer l'environnement de
 > développement sur une nouvelle machine Mac, à partir d'un clone Git du projet.
 > Il couvre : SSH, déploiement Raspi, règles critiques, état du code.
