@@ -152,7 +152,7 @@ class TestLoadJournal:
 - [ ] **Step 1.2 : Vérifier que les tests échouent**
 
 ```bash
-cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/DonchianBot"
+cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/ZorionBot"
 python3 -m pytest tests/test_journal.py -v 2>&1 | tail -20
 ```
 
@@ -263,7 +263,7 @@ Attendu : 6 tests PASSED.
 - [ ] **Step 1.5 : Commit**
 
 ```bash
-cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/DonchianBot"
+cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/ZorionBot"
 git add app/main.py tests/test_journal.py
 git commit -m "feat: add trade journal helpers and tests"
 ```
@@ -294,7 +294,7 @@ Dans `main()`, juste après `_load_disk_cache()` :
 - [ ] **Step 2.2 : Vérifier que le bot démarre sans erreur**
 
 ```bash
-cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/DonchianBot"
+cd "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/ZorionBot"
 python3 -m pytest tests/ -q 2>&1 | tail -5
 ```
 
@@ -324,13 +324,13 @@ Dans `run_cycle()`, remplacer le bloc de placement d'ordre :
                 if signal["direction"] == "BUY":
                     await broker.open_long(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 else:
                     await broker.open_short(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 # ── Mémoriser SL/TP pour affichage futur ─────────
@@ -657,7 +657,7 @@ Remplacer la méthode existante :
         today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 
         lines = [
-            f"📊 <b>DonchianBot — Résumé du {today}</b>",
+            f"📊 <b>ZorionBot — Résumé du {today}</b>",
             f"Trades du jour : {trades_today}",
         ]
 
@@ -815,7 +815,7 @@ Remplacer le texte du `/help` :
 
 ```python
         await telegram._send(
-            "🤖 <b>DonchianBot — Commandes</b>\n\n"
+            "🤖 <b>ZorionBot — Commandes</b>\n\n"
             "/status  — Solde, positions (SL/TP/progression)\n"
             "/trades  — Journal mensuel des trades clôturés\n"
             "/logs    — Dernières lignes de log\n"
@@ -849,23 +849,23 @@ git commit -m "feat: add /trades command and update /status with SL/TP display"
 - [ ] **Step 8.1 : Copier les fichiers modifiés**
 
 ```bash
-scp "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/DonchianBot/app/main.py" \
-    raspi-home:DonchianBot/app/main.py
+scp "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/ZorionBot/app/main.py" \
+    raspi-home:ZorionBot/app/main.py
 
-scp "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/DonchianBot/app/telegram_notifier.py" \
-    raspi-home:DonchianBot/app/telegram_notifier.py
+scp "/Users/remyclaudel/Documents/Developpement/Claude.Cowork/Algo_B&G/ZorionBot/app/telegram_notifier.py" \
+    raspi-home:ZorionBot/app/telegram_notifier.py
 ```
 
 - [ ] **Step 8.2 : Rebuild et redémarrage**
 
 ```bash
-ssh raspi-home "cd ~/DonchianBot && docker compose build 2>&1 | tail -5 && docker compose up -d --force-recreate 2>&1 | tail -5"
+ssh raspi-home "cd ~/ZorionBot && docker compose build 2>&1 | tail -5 && docker compose up -d --force-recreate 2>&1 | tail -5"
 ```
 
 - [ ] **Step 8.3 : Vérifier les logs de démarrage**
 
 ```bash
-ssh raspi-home "sleep 5 && docker logs donchianbot 2>&1 | tail -15"
+ssh raspi-home "sleep 5 && docker logs zorionbot 2>&1 | tail -15"
 ```
 
 Attendu (lignes clés) :

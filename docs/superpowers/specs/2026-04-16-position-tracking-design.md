@@ -7,7 +7,7 @@
 
 ## Contexte
 
-DonchianBot détecte déjà la fermeture des positions et calcule le P&L, mais rien n'est persisté sur disque. Le résumé quotidien et la commande `/status` affichent les positions ouvertes sans SL, TP ni progression. Il n'existe aucun historique des trades clôturés.
+ZorionBot détecte déjà la fermeture des positions et calcule le P&L, mais rien n'est persisté sur disque. Le résumé quotidien et la commande `/status` affichent les positions ouvertes sans SL, TP ni progression. Il n'existe aucun historique des trades clôturés.
 
 ## Objectif
 
