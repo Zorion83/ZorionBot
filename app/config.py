@@ -43,5 +43,5 @@ RR_RATIO     = float(os.environ.get("RR_RATIO", "2.0"))
 
 # ── Logs ──────────────────────────────────────────────────────────
 DATA_DIR  = os.environ.get("DATA_DIR", "/app/data")
-LOG_FILE  = os.path.join(DATA_DIR, "donchianbot.log")
+LOG_FILE  = os.path.join(DATA_DIR, "zorionbot.log")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
