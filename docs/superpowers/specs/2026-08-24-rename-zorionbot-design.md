@@ -80,6 +80,17 @@ Découvert en cours de session : le mini-PC (`minipc`, Windows, Tailscale, acces
 - **Un vault Obsidian** (`Zorion-AI's brain`) avec un dossier de notes `Projects\DonchianBot` (Journal, Décisions, Trades, Infrastructure, Configurations, Déploiement, Commandes utiles, Accès SSH, Variables env, Mobile & monitoring — activement tenu à jour). Traitement demandé par le propriétaire : « dans la même logique qu'ici », c'est-à-dire la même règle que pour `DOCKER_INFRASTRUCTURE.md`/`TRANSFER.md` — renommer le dossier et les mentions de marque (« DonchianBot » comme nom de projet), mais **laisser inchangés** les chemins/commandes qui décrivent l'infrastructure Pi réelle actuelle (`/srv/data/donchianbot`, `~/DonchianBot` sur le Pi, `container_name: donchianbot`, commandes SSH/Docker littérales) jusqu'à la migration de septembre. Ce tri nécessite de lire le contenu de chaque note plutôt qu'un remplacement global — traité comme une tâche d'exécution assistée manuelle, pas de remplacement automatique aveugle, notamment pour `Accès SSH.md` et `Variables env.md` qui contiennent des informations sensibles (aucune valeur sensible n'est modifiée, seul le texte « DonchianBot » l'est).
 - Ce contenu (notes personnelles, potentiellement sensibles) ne doit **jamais** être recopié dans ce dépôt Git (spec, plan, commits) — seules les décisions de traitement le sont, pas le contenu des notes lui-même.
 
+## Addendum — docs HTML oubliées de l'inventaire initial
+
+Repéré par la revue qualité de la Tâche 10 (relecture de `docs/DOCKER_INFRASTRUCTURE.md`/`docs/TRANSFER.md`) : deux fichiers HTML statiques, absents de l'inventaire initial de cette spec, décrivent eux aussi l'infrastructure Pi réelle actuelle et contiennent des occurrences de `DonchianBot`/`donchianbot` :
+
+- `docs/architecture.html` (10 occurrences — titre de page, en-tête `<h1>`, libellé du dépôt, chemin de volume, nom de fichier de log, pied de page).
+- `docs/docker_infrastructure_print.html` (23 occurrences — c'est un doublon imprimable de `DOCKER_INFRASTRUCTURE.md`, donc le même contenu que ce dernier, avec le même besoin de rester synchronisé avec le Pi réel).
+
+Traitement : même règle que la Tâche 10 — bandeau d'avertissement ajouté (adapté en HTML, juste après `<body>`, avant le `<h1>`), **aucun renommage du contenu** (les chemins/noms de conteneur décrivent l'infrastructure réelle actuelle, comme pour les deux fichiers Markdown). Contrairement à `DOCKER_INFRASTRUCTURE.md`, ces fichiers ne contiennent pas d'URL de clone GitHub littérale à mettre à jour.
+
+La vérification finale par grep de cette spec (section « Vérification ») doit donc être complétée : `docs/architecture.html` et `docs/docker_infrastructure_print.html` font désormais partie des occurrences volontairement conservées, au même titre que `docker-compose.yml`, `docs/DOCKER_INFRASTRUCTURE.md` et `docs/TRANSFER.md`.
+
 ## Hors périmètre (rappel)
 
 - Phase 2 : isolation des stratégies dans des sous-dossiers dédiés + registre de symboles de suivi des performances (Mean Reversion v5 = symbole 1️⃣, stratégies inactives = code 99). Fera l'objet d'un design séparé une fois cette Phase 1 mergée.
