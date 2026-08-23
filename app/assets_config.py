@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# assets_config.py — Asset configuration for DonchianBot (Alpaca Markets)
+# assets_config.py — Asset configuration for ZorionBot (Alpaca Markets)
 #
 # Required fields per asset:
 #   "symbol"      : Ticker Alpaca (ex: "SPY", "QQQ")
