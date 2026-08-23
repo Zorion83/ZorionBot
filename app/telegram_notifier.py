@@ -157,7 +157,7 @@ class TelegramNotifier:
     # ── Notifications sortantes ───────────────────────────────────
 
     async def send_test_message(self) -> None:
-        await self._send("✅ DonchianBot connecté et opérationnel.")
+        await self._send("✅ ZorionBot connecté et opérationnel.")
 
     async def send_startup(self, demo: bool, assets: list) -> None:
         from datetime import datetime, timezone
@@ -165,7 +165,7 @@ class TelegramNotifier:
         assets_str = ", ".join(assets) if assets else "aucun actif configuré"
         now_str    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         await self._send(
-            f"🤖 <b>DonchianBot démarré</b>\n"
+            f"🤖 <b>ZorionBot démarré</b>\n"
             f"📅 {now_str}\n"
             f"Mode   : {mode}\n"
             f"Actifs : {assets_str}"
@@ -211,7 +211,7 @@ class TelegramNotifier:
         today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 
         lines = [
-            f"📊 <b>DonchianBot — Résumé du {today}</b>",
+            f"📊 <b>ZorionBot — Résumé du {today}</b>",
             f"Trades du jour : {trades_today}",
         ]
 
