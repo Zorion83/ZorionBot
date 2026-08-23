@@ -157,6 +157,10 @@ _last_cycle_iso: str  = ""   # ISO timestamp of last cycle (for order lookup)
 # ── Pause / commandes Telegram ────────────────────────────────────
 _paused: bool = False         # True = cycles tournent mais ordres bloqués
 
+# ── Cooldown après échec d'ordre (évite le spam de retries) ───────
+_order_failure_cooldown: dict = {}   # {epic: iso_timestamp du dernier échec}
+_ORDER_FAILURE_COOLDOWN_MINUTES = 120   # 4 cycles avant nouvelle tentative
+
 
 def _load_disk_cache() -> None:
     if not os.path.exists(_CACHE_FILE):
@@ -181,6 +185,27 @@ def _save_disk_cache() -> None:
         logger.warning("Error writing disk cache: %s", e)
 
 
+def _merge_candles(existing: list, incoming: list) -> list:
+    """Fusionne deux listes de bougies par timestamp, la version fraîche l'emportant.
+
+    IG renvoie la bougie en cours dès qu'elle s'ouvre. Comme le cycle tourne 5 s après
+    la demi-heure, cette bougie arrive quasi vide (open ≈ high ≈ low ≈ close) : il faut
+    la réécrire aux cycles suivants, une fois sa période close. Sans cela chaque barre
+    reste figée sur son premier instantané et l'ATR est sous-évalué d'environ 37 %.
+    """
+    by_time = {c["time"]: c for c in existing}
+    by_time.update({c["time"]: c for c in incoming})
+    return [by_time[t] for t in sorted(by_time)]
+
+
+def _refetch_start(candles: list, back: int = 3) -> str:
+    """Timestamp à partir duquel redemander les bougies : on remonte de `back` barres
+    pour réécrire les dernières (dont la barre en cours) et rattraper un cycle manqué."""
+    if not candles:
+        return ""
+    return candles[-min(back, len(candles))]["time"]
+
+
 async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
     """3-level candle cache: full fetch → catch-up → incremental."""
     if epic not in _candle_cache:
@@ -201,16 +226,18 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 2: catch-up after disk cache load — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = existing[-1]["time"] if existing else ""
+            last_start = _refetch_start(existing)
             new_candles = await broker.get_candles(epic, 1000, start=last_start)
             _startup_done.add(epic)
             if new_candles:
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
-                if added:
-                    _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
+                merged      = _merge_candles(existing, new_candles)
+                if merged != existing:
+                    _candle_cache[epic] = merged[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
-                    logger.info("Cache caught up — %s: +%d candle(s)", epic, len(added))
+                    logger.info("Cache caught up — %s: +%d candle(s), %d réécrite(s)",
+                                epic, len(added), len(new_candles) - len(added))
                 else:
                     logger.info("Cache caught up — %s (already up to date)", epic)
             else:
@@ -226,15 +253,17 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 3: incremental update — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = existing[-1]["time"] if existing else ""
+            last_start = _refetch_start(existing)
             new_candles = await broker.get_candles(epic, 3, start=last_start)
             if new_candles:
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
-                if added:
-                    _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
+                merged      = _merge_candles(existing, new_candles)
+                if merged != existing:
+                    _candle_cache[epic] = merged[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
-                    logger.info("Cache updated — %s: +%d candle(s)", epic, len(added))
+                    logger.info("Cache updated — %s: +%d candle(s), %d réécrite(s)",
+                                epic, len(added), len(new_candles) - len(added))
         except BrokerError as e:
             if e.status_code == 403:
                 logger.warning("Quota exceeded for %s — analysing from cache", epic)
@@ -636,6 +665,18 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 )
                 signal = {**signal, "qty": capped_qty}
 
+            # ── Cooldown après echec recent d'ordre sur cet epic ──
+            last_failure = _order_failure_cooldown.get(epic)
+            if last_failure:
+                elapsed_min = (now - datetime.fromisoformat(last_failure)).total_seconds() / 60.0
+                if elapsed_min < _ORDER_FAILURE_COOLDOWN_MINUTES:
+                    logger.info(
+                        "%s: signal %s détecté — en cooldown après échec (%.0f/%d min), ordre non retenté",
+                        asset_name, signal["direction"], elapsed_min, _ORDER_FAILURE_COOLDOWN_MINUTES,
+                    )
+                    continue
+                del _order_failure_cooldown[epic]
+
             # Pause active → log le signal mais ne place pas d'ordre
             if _paused:
                 logger.info(
@@ -674,11 +715,25 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     "opened_at":  now.isoformat(),
                 }
                 _save_state({"open_signal_cache": _signal_cache})
+                # Enregistrer immédiatement dans _prev_positions (pas seulement au
+                # prochain cycle) : sur IG, TP/SL sont natifs et une position peut
+                # s'ouvrir ET se clôturer en quelques minutes, avant le prochain
+                # fetch — sans cet ajout immédiat, sa clôture serait invisible
+                # (jamais capturée "ouverte" par aucun snapshot) et jamais journalisée.
+                _prev_positions[epic] = {
+                    "direction":   signal["direction"],
+                    "entry_price": signal["entry_price"],
+                    "qty":         signal["qty"],
+                }
                 await telegram.send_signal(signal, DEMO_MODE)
 
             except BrokerError as e:
                 logger.error("BrokerError %s: %s", asset_name, e)
-                await telegram.send_error(f"Order {asset_name}", str(e))
+                _order_failure_cooldown[epic] = now.isoformat()
+                await telegram.send_error(
+                    f"Order {asset_name}",
+                    f"{e}\n⏸ Pas de nouvelle tentative pendant {_ORDER_FAILURE_COOLDOWN_MINUTES} min.",
+                )
 
         except Exception as e:
             logger.error("Error %s: %s", asset_name, e, exc_info=True)
