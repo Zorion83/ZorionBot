@@ -7,6 +7,7 @@ Timeframe: M30
 import asyncio
 import json
 import logging
+import logging.handlers
 import math
 import os
 from datetime import datetime, timezone
@@ -36,10 +37,21 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s : %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        # Rotation : sans elle le fichier grossit sans fin (81 Mo constatés le 2026-08-23).
+        # Mêmes bornes que le driver json-file du compose : 10 Mo x 3.
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8",
+        ),
         logging.StreamHandler(),
     ],
 )
+
+# httpx logge chaque requête en INFO, URL complète comprise. Le long-polling Telegram
+# tourne toutes les 30 s, ce qui (1) écrivait le token du bot en clair dans chaque ligne
+# et (2) représentait l'essentiel du volume de log. WARNING garde les erreurs réseau.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger("DonchianBot")
 
 # ── Candle cache ──────────────────────────────────────────────────
