@@ -1,4 +1,4 @@
-# DonchianBot — Design Spec
+# ZorionBot — Design Spec
 **Date :** 2026-03-20
 **Statut :** Approuvé
 
@@ -23,7 +23,7 @@ Tourne en parallèle du SwingBot existant sur Raspberry Pi, dans un conteneur Do
 
 ```
 Algo_B&G/
-└── DonchianBot/
+└── ZorionBot/
     ├── app/
     │   ├── main.py               # Boucle principale M30
     │   ├── config.py             # Lecture des variables .env
@@ -268,19 +268,19 @@ CMD ["python", "-u", "main.py"]
 ### `docker-compose.yml`
 ```yaml
 services:
-  donchianbot:
-    container_name: donchianbot
+  zorionbot:
+    container_name: zorionbot
     build: .
     restart: unless-stopped
     env_file:
-      - /srv/data/donchianbot/.env
+      - /srv/data/zorionbot/.env
     volumes:
-      - /srv/data/donchianbot:/app/data
+      - /srv/data/zorionbot:/app/data
     environment:
       - DATA_DIR=/app/data
 ```
 
-Données persistées dans `/srv/data/donchianbot/` — **indépendant du SwingBot** (`/srv/data/swingbot/`).
+Données persistées dans `/srv/data/zorionbot/` — **indépendant du SwingBot** (`/srv/data/swingbot/`).
 
 ---
 
@@ -314,12 +314,12 @@ build/
 ---
 
 ## Déploiement
-1. Créer `/srv/data/donchianbot/.env` sur la raspi (à partir de `.env.example`)
-2. `docker compose up -d` depuis `DonchianBot/`
+1. Créer `/srv/data/zorionbot/.env` sur la raspi (à partir de `.env.example`)
+2. `docker compose up -d` depuis `ZorionBot/`
 3. Les deux bots tournent indépendamment, aucun fichier partagé
 
 ---
 
 ## GitHub
-Repository dédié à créer pour `DonchianBot/` une fois le code finalisé.
+Repository dédié à créer pour `ZorionBot/` une fois le code finalisé.
 `.gitignore` inclut `.env`, `data/`, `logs/` et fichiers Python compilés.
