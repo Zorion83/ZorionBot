@@ -52,7 +52,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-logger = logging.getLogger("DonchianBot")
+logger = logging.getLogger("ZorionBot")
 
 # ── Candle cache ──────────────────────────────────────────────────
 _candle_cache: dict = {}
@@ -296,7 +296,7 @@ async def handle_telegram_command(
 
     if command == "/help":
         await telegram._send(
-            "🤖 <b>DonchianBot — Commandes</b>\n\n"
+            "🤖 <b>ZorionBot — Commandes</b>\n\n"
             "/status  — Solde, positions (SL/TP/progression)\n"
             "/trades  — Journal mensuel des trades clôturés\n"
             "/logs    — Dernières lignes de log\n"
@@ -314,7 +314,7 @@ async def handle_telegram_command(
             mode_tag  = "[DEMO] " if DEMO_MODE else ""
 
             lines = [
-                f"🤖 <b>{mode_tag}DonchianBot</b>",
+                f"🤖 <b>{mode_tag}ZorionBot</b>",
                 f"⏰ {now_str}",
                 f"💰 Balance   : ${balance:,.2f}",
                 f"🎯 Risk/trade : ${risk_amt:.2f} ({RISK_PCT * 100:.1f}%)",
@@ -706,13 +706,13 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 if signal["direction"] == "BUY":
                     await broker.open_long(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 else:
                     await broker.open_short(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 # ── Ordre accepté : incrémenter le compteur et mémoriser SL/TP ──
@@ -762,7 +762,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
 
 async def main() -> None:
     logger.info("╔══════════════════════════════╗")
-    logger.info("║   DonchianBot started        ║")
+    logger.info("║   ZorionBot started          ║")
     logger.info("║  Mode : %-6s               ║", "DEMO" if DEMO_MODE else "LIVE")
     logger.info("╚══════════════════════════════╝")
 
@@ -868,7 +868,7 @@ async def main() -> None:
             pass
         await broker.disconnect()
         await telegram.close()
-        logger.info("DonchianBot stopped.")
+        logger.info("ZorionBot stopped.")
 
 
 if __name__ == "__main__":
