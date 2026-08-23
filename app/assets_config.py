@@ -20,10 +20,14 @@
 ASSETS = {
     # ── Stratégie Mean Reversion v5 sur IG Markets ────────────────
     "GOLD": {
-        "symbol":        "CS.D.CFDGOLD.CFM.IP",  # Or au comptant Mini (10 oz/contrat)
-        "contract_size": 10.0,                   # 1 contrat = 10 oz ; 1 point = 1 $/oz
+        # 2026-07-23 : "Or au comptant Mini (10oz)" (CS.D.CFDGOLD.CFM.IP) rejeté par
+        # l'API IG démo (403 unauthorised access, exchangeId=GC_WORLD_USD — compte démo
+        # sans accès à cet exchange group). Basculé sur "Spot Gold ($1)", même flux de
+        # prix (spread identique, vérifié bid/offer), testé en réel (ordre + clôture OK).
+        "symbol":        "CS.D.CFEGOLD.CEF.IP",  # Spot Gold ($1) — 1 contrat = 1$/point
+        "contract_size": 1.0,
         "currency_code": "USD",
-        "point_value":   10.0,                   # $ par point et par contrat
+        "point_value":   1.0,
         "enabled":       True,
         "crypto":        False,
     },
