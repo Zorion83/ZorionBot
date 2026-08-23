@@ -7,6 +7,7 @@ Timeframe: M30
 import asyncio
 import json
 import logging
+import logging.handlers
 import math
 import os
 from datetime import datetime, timezone
@@ -36,10 +37,21 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s : %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        # Rotation : sans elle le fichier grossit sans fin (81 Mo constatés le 2026-08-23).
+        # Mêmes bornes que le driver json-file du compose : 10 Mo x 3.
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8",
+        ),
         logging.StreamHandler(),
     ],
 )
+
+# httpx logge chaque requête en INFO, URL complète comprise. Le long-polling Telegram
+# tourne toutes les 30 s, ce qui (1) écrivait le token du bot en clair dans chaque ligne
+# et (2) représentait l'essentiel du volume de log. WARNING garde les erreurs réseau.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger("DonchianBot")
 
 # ── Candle cache ──────────────────────────────────────────────────
@@ -185,6 +197,27 @@ def _save_disk_cache() -> None:
         logger.warning("Error writing disk cache: %s", e)
 
 
+def _merge_candles(existing: list, incoming: list) -> list:
+    """Fusionne deux listes de bougies par timestamp, la version fraîche l'emportant.
+
+    IG renvoie la bougie en cours dès qu'elle s'ouvre. Comme le cycle tourne 5 s après
+    la demi-heure, cette bougie arrive quasi vide (open ≈ high ≈ low ≈ close) : il faut
+    la réécrire aux cycles suivants, une fois sa période close. Sans cela chaque barre
+    reste figée sur son premier instantané et l'ATR est sous-évalué d'environ 37 %.
+    """
+    by_time = {c["time"]: c for c in existing}
+    by_time.update({c["time"]: c for c in incoming})
+    return [by_time[t] for t in sorted(by_time)]
+
+
+def _refetch_start(candles: list, back: int = 3) -> str:
+    """Timestamp à partir duquel redemander les bougies : on remonte de `back` barres
+    pour réécrire les dernières (dont la barre en cours) et rattraper un cycle manqué."""
+    if not candles:
+        return ""
+    return candles[-min(back, len(candles))]["time"]
+
+
 async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
     """3-level candle cache: full fetch → catch-up → incremental."""
     if epic not in _candle_cache:
@@ -205,16 +238,18 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 2: catch-up after disk cache load — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = existing[-1]["time"] if existing else ""
+            last_start = _refetch_start(existing)
             new_candles = await broker.get_candles(epic, 1000, start=last_start)
             _startup_done.add(epic)
             if new_candles:
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
-                if added:
-                    _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
+                merged      = _merge_candles(existing, new_candles)
+                if merged != existing:
+                    _candle_cache[epic] = merged[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
-                    logger.info("Cache caught up — %s: +%d candle(s)", epic, len(added))
+                    logger.info("Cache caught up — %s: +%d candle(s), %d réécrite(s)",
+                                epic, len(added), len(new_candles) - len(added))
                 else:
                     logger.info("Cache caught up — %s (already up to date)", epic)
             else:
@@ -230,15 +265,17 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 3: incremental update — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = existing[-1]["time"] if existing else ""
+            last_start = _refetch_start(existing)
             new_candles = await broker.get_candles(epic, 3, start=last_start)
             if new_candles:
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
-                if added:
-                    _candle_cache[epic] = (existing + added)[-LOOKBACK_CANDLES:]
+                merged      = _merge_candles(existing, new_candles)
+                if merged != existing:
+                    _candle_cache[epic] = merged[-LOOKBACK_CANDLES:]
                     _save_disk_cache()
-                    logger.info("Cache updated — %s: +%d candle(s)", epic, len(added))
+                    logger.info("Cache updated — %s: +%d candle(s), %d réécrite(s)",
+                                epic, len(added), len(new_candles) - len(added))
         except BrokerError as e:
             if e.status_code == 403:
                 logger.warning("Quota exceeded for %s — analysing from cache", epic)

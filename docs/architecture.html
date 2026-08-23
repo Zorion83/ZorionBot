@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DonchianBot — Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 40px;
+    }
+
+    /* ── Layout principal ─────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr 240px;
+      grid-template-rows: auto auto auto;
+      gap: 0;
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    /* ── Machines ─────────────────────────────────────────── */
+    .machine {
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+    }
+
+    .machine-mac {
+      background: #1e2433;
+      border: 1.5px solid #334155;
+      grid-column: 1;
+      grid-row: 2;
+      align-self: center;
+    }
+
+    .machine-raspi {
+      background: #1a1f2e;
+      border: 1.5px solid #2d4a7a;
+      grid-column: 3;
+      grid-row: 1 / 4;
+    }
+
+    .machine-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .machine-mac .machine-label { color: #94a3b8; }
+    .machine-raspi .machine-label { color: #60a5fa; }
+
+    .machine-icon { font-size: 16px; }
+
+    /* ── Blocs internes ───────────────────────────────────── */
+    .block {
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .block:last-child { margin-bottom: 0; }
+
+    .block-editor {
+      background: #252d3d;
+      border: 1px solid #3b4a63;
+    }
+    .block-git {
+      background: #1e2a1e;
+      border: 1px solid #2d4a2d;
+    }
+
+    .block-title {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .block-editor .block-title { color: #7dd3fc; }
+    .block-git .block-title { color: #86efac; }
+
+    .block-detail {
+      color: #94a3b8;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    /* ── Docker engine ────────────────────────────────────── */
+    .docker-wrapper {
+      background: #111827;
+      border: 1.5px dashed #1d4ed8;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .docker-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #3b82f6;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .containers-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .container-box {
+      flex: 1;
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-size: 11px;
+    }
+
+    .container-side {
+      background: #1e2433;
+      border: 1px solid #334155;
+    }
+    .container-side .c-name { color: #94a3b8; font-weight: 600; }
+    .container-side .c-desc { color: #64748b; font-size: 10px; margin-top: 3px; }
+
+    .container-main {
+      background: #0f2a1a;
+      border: 1.5px solid #166534;
+    }
+    .container-main .c-name { color: #4ade80; font-weight: 700; font-size: 12px; }
+    .container-main .c-desc { color: #86efac; font-size: 10px; margin-top: 3px; }
+
+    .c-name { display: flex; align-items: center; gap: 5px; }
+
+    /* ── DonchianBot detail ───────────────────────────────── */
+    .bot-detail {
+      background: #0a1f12;
+      border: 1px solid #166534;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .bot-detail-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #4ade80;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .file-item {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .file-name {
+      color: #86efac;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 10.5px;
+      min-width: 140px;
+    }
+    .file-role { color: #64748b; font-size: 10.5px; }
+
+    /* ── Volume ───────────────────────────────────────────── */
+    .volume-box {
+      background: #1a1208;
+      border: 1px dashed #92400e;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .volume-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #f59e0b;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .volume-files {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .volume-file {
+      background: #292011;
+      border: 1px solid #92400e;
+      border-radius: 5px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #fbbf24;
+    }
+    .volume-file.secret {
+      border-color: #dc2626;
+      color: #f87171;
+      background: #2a0a0a;
+    }
+
+    /* ── GitHub (centre haut) ─────────────────────────────── */
+    .github-box {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      padding-bottom: 20px;
+    }
+    .github-inner {
+      background: #1e1e2e;
+      border: 1.5px solid #4b5563;
+      border-radius: 12px;
+      padding: 12px 20px;
+      text-align: center;
+      min-width: 180px;
+    }
+    .github-inner .g-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 4px;
+    }
+    .github-inner .g-repo {
+      font-size: 10.5px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #94a3b8;
+    }
+
+    /* ── Services externes (bas) ──────────────────────────── */
+    .externals {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 16px;
+      padding-top: 20px;
+    }
+    .ext-box {
+      border-radius: 10px;
+      padding: 12px 16px;
+      text-align: center;
+      min-width: 140px;
+    }
+    .ext-alpaca {
+      background: #0f1f2e;
+      border: 1.5px solid #0ea5e9;
+    }
+    .ext-telegram {
+      background: #0f1a2e;
+      border: 1.5px solid #2563eb;
+    }
+    .ext-title {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .ext-alpaca .ext-title { color: #38bdf8; }
+    .ext-telegram .ext-title { color: #60a5fa; }
+    .ext-detail {
+      font-size: 10px;
+      color: #64748b;
+      line-height: 1.7;
+    }
+    .ext-tag {
+      display: inline-block;
+      background: #1e3a4a;
+      border: 1px solid #0ea5e9;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 9.5px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #7dd3fc;
+      margin: 2px 1px 0;
+    }
+    .ext-tag.tg { background: #1e2e4a; border-color: #3b82f6; color: #93c5fd; }
+
+    /* ── Flèches SVG ──────────────────────────────────────── */
+    .arrows-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    /* ── Légendes flèches (zones centrales) ───────────────── */
+    .center-col {
+      grid-column: 2;
+      grid-row: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+      padding: 0 20px;
+    }
+
+    .arrow-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+    .arrow-line {
+      flex: 1;
+      height: 1.5px;
+      position: relative;
+    }
+    .arrow-line.right { background: linear-gradient(to right, #3b82f6, #60a5fa); }
+    .arrow-line.both { background: linear-gradient(to right, #86efac, #4ade80); }
+    .arrow-line.down  { background: linear-gradient(to right, #f59e0b, #fbbf24); }
+
+    .arrow-line::after {
+      content: '';
+      position: absolute;
+      right: -1px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-left: 7px solid #60a5fa;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+    }
+    .arrow-line.both::before {
+      content: '';
+      position: absolute;
+      left: -1px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-right: 7px solid #4ade80;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+    }
+    .arrow-line.both::after { border-left-color: #4ade80; }
+
+    .arrow-label {
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+    .arrow-label.ssh  { background: #1e2d4a; color: #7dd3fc; border: 1px solid #3b82f6; }
+    .arrow-label.git  { background: #1a2e1a; color: #86efac; border: 1px solid #4ade80; }
+
+    /* ── Flèches verticales internes Raspi ───────────────── */
+    .v-arrow {
+      text-align: center;
+      color: #92400e;
+      font-size: 14px;
+      margin: 4px 0;
+    }
+
+    /* ── Stratégie M30 badge ──────────────────────────────── */
+    .cycle-badge {
+      display: inline-block;
+      background: #14291a;
+      border: 1px solid #166534;
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #4ade80;
+      margin-top: 5px;
+    }
+
+    /* ── Port badges ──────────────────────────────────────── */
+    .port-badge {
+      display: inline-block;
+      background: #1e1e3a;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 9.5px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #94a3b8;
+      margin-left: 4px;
+    }
+
+    /* ── Raspi flèches API ────────────────────────────────── */
+    .raspi-arrows {
+      grid-column: 3;
+      grid-row: 3;
+      padding-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-left: 20px;
+    }
+    .api-arrow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10.5px;
+    }
+    .api-line {
+      width: 28px;
+      height: 1.5px;
+    }
+    .api-line.alpaca { background: #0ea5e9; }
+    .api-line.telegram { background: #3b82f6; }
+    .api-text { color: #64748b; }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      font-size: 11px;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🤖 DonchianBot — Architecture globale</h1>
+  <p class="subtitle">Mac (développement) · GitHub (versioning) · Raspberry Pi 5 (exécution) · APIs externes</p>
+
+  <div class="layout">
+
+    <!-- ── GitHub (haut centre) ──────────────────────────── -->
+    <div class="github-box">
+      <div class="github-inner">
+        <div style="font-size:22px; margin-bottom:6px;">🐙</div>
+        <div class="g-title">GitHub</div>
+        <div class="g-repo">Zorion83/DonchianBot</div>
+        <div style="font-size:10px; color:#4b5563; margin-top:4px;">versioning · sauvegarde · transfert</div>
+      </div>
+    </div>
+
+    <!-- ── Mac (gauche) ──────────────────────────────────── -->
+    <div class="machine machine-mac">
+      <div class="machine-label">
+        <span class="machine-icon">💻</span>
+        MacBook Pro
+      </div>
+
+      <div class="block block-editor">
+        <div class="block-title">✦ Claude Code</div>
+        <div class="block-detail">
+          Éditeur + IA<br/>
+          Modifications du code<br/>
+          Debug &amp; analyse des logs
+        </div>
+      </div>
+
+      <div class="block block-git">
+        <div class="block-title">⎇ Git local</div>
+        <div class="block-detail">
+          Repository cloné<br/>
+          <span style="font-family:monospace; font-size:10px;">~/Developpement/…/DonchianBot</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Centre : flèches ───────────────────────────────── -->
+    <div class="center-col">
+
+      <div class="arrow-row">
+        <div class="arrow-line both"></div>
+        <span class="arrow-label git">git push / pull</span>
+        <div class="arrow-line both" style="transform: scaleX(-1);"></div>
+      </div>
+
+      <div style="font-size:10px; color:#4b5563; text-align:center; line-height:1.6;">
+        ↑ versioning<br/>↓ clone sur nouvelle machine
+      </div>
+
+      <div style="border-top: 1px solid #1e293b; width:100%; margin: 4px 0;"></div>
+
+      <div class="arrow-row">
+        <div class="arrow-line right"></div>
+        <span class="arrow-label ssh">rsync + SSH</span>
+        <div class="arrow-line right"></div>
+      </div>
+
+      <div style="font-size:10px; color:#4b5563; text-align:center; line-height:1.6;">
+        Envoi du code modifié<br/>
+        <span style="font-family:monospace; font-size:9.5px; color:#475569;">docker compose up -d --build</span>
+      </div>
+
+    </div>
+
+    <!-- ── Raspberry Pi 5 (droite) ───────────────────────── -->
+    <div class="machine machine-raspi">
+      <div class="machine-label">
+        <span class="machine-icon">🍓</span>
+        Raspberry Pi 5
+        <span style="font-size:9px; color:#475569; font-weight:400; text-transform:none; letter-spacing:0;">· Debian ARM64 · 192.168.1.197</span>
+      </div>
+
+      <!-- Docker Engine -->
+      <div class="docker-wrapper">
+        <div class="docker-label">
+          🐳 Docker Engine
+        </div>
+
+        <!-- 3 containers secondaires -->
+        <div class="containers-row">
+          <div class="container-box container-side">
+            <div class="c-name">🔒 caddy</div>
+            <div class="c-desc">Reverse proxy HTTPS<span class="port-badge">:80</span><span class="port-badge">:443</span></div>
+          </div>
+          <div class="container-box container-side">
+            <div class="c-name">📊 homepage</div>
+            <div class="c-desc">Dashboard monitoring</div>
+          </div>
+          <div class="container-box container-side">
+            <div class="c-name">📈 swingbot</div>
+            <div class="c-desc">Autre bot trading</div>
+          </div>
+        </div>
+
+        <!-- DonchianBot -->
+        <div class="container-box container-main" style="margin-bottom:10px;">
+          <div class="c-name">🤖 donchianbot</div>
+          <div class="c-desc">python -u main.py · restart: unless-stopped</div>
+          <div class="cycle-badge">⏱ boucle M30 — toutes les 30 minutes</div>
+        </div>
+
+        <!-- Détail fichiers -->
+        <div class="bot-detail">
+          <div class="bot-detail-title">📁 Code baked dans l'image Docker</div>
+          <div class="file-list">
+            <div class="file-item">
+              <span class="file-name">main.py</span>
+              <span class="file-role">boucle principale · cycles M30 · TP/SL monitoring</span>
+            </div>
+            <div class="file-item">
+              <span class="file-name">strategy.py</span>
+              <span class="file-role">signaux LONG/SHORT · conditions Donchian + HA</span>
+            </div>
+            <div class="file-item">
+              <span class="file-name">indicators.py</span>
+              <span class="file-role">donchian_channel · heiken_ashi · zlmacd</span>
+            </div>
+            <div class="file-item">
+              <span class="file-name">alpaca_broker.py</span>
+              <span class="file-role">ordres marché · positions · candles</span>
+            </div>
+            <div class="file-item">
+              <span class="file-name">telegram_notifier.py</span>
+              <span class="file-role">notifications · commandes /status /pause…</span>
+            </div>
+            <div class="file-item">
+              <span class="file-name">risk.py</span>
+              <span class="file-role">calculate_size · calculate_tp</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Volume -->
+      <div class="v-arrow">↕</div>
+      <div class="volume-box">
+        <div class="volume-label">
+          💾 Volume persistant — /srv/data/donchianbot/
+        </div>
+        <div class="volume-files">
+          <span class="volume-file secret">.env 🔑</span>
+          <span class="volume-file">bot_state.json</span>
+          <span class="volume-file">candle_cache.json</span>
+          <span class="volume-file">donchianbot.log</span>
+        </div>
+        <div style="font-size:9.5px; color:#64748b; margin-top:7px;">
+          Seul dossier qui survit au rebuild Docker · <span style="color:#f87171;">.env jamais dans Git</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Services externes (bas centre) ────────────────── -->
+    <div class="externals">
+
+      <div class="ext-box ext-alpaca">
+        <div style="font-size:20px; margin-bottom:6px;">📈</div>
+        <div class="ext-title">Alpaca Markets</div>
+        <div class="ext-detail">
+          Paper Trading API<br/>
+          <span class="ext-tag">SPY</span>
+          <span class="ext-tag">QQQ</span>
+          <span class="ext-tag">BTC/USD</span><br/>
+          <span style="font-size:9.5px; margin-top:4px; display:block;">paper-api.alpaca.markets</span>
+        </div>
+      </div>
+
+      <div class="ext-box ext-telegram">
+        <div style="font-size:20px; margin-bottom:6px;">✈️</div>
+        <div class="ext-title">Telegram Bot</div>
+        <div class="ext-detail">
+          Notifications<br/>
+          <span class="ext-tag tg">/status</span>
+          <span class="ext-tag tg">/logs</span>
+          <span class="ext-tag tg">/pause</span><br/>
+          <span style="font-size:9.5px; margin-top:4px; display:block;">api.telegram.org</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Flèches API depuis Raspi (bas droite) ──────────── -->
+    <div class="raspi-arrows">
+      <div class="api-arrow">
+        <div class="api-line alpaca"></div>
+        <span class="api-text" style="color:#38bdf8;">↙ candles + ordres</span>
+      </div>
+      <div class="api-arrow">
+        <div class="api-line telegram"></div>
+        <span class="api-text" style="color:#60a5fa;">↙ signaux + alertes</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Légende ─────────────────────────────────────────── -->
+  <div style="max-width:1100px; margin: 36px auto 0; display:flex; gap:20px; flex-wrap:wrap; justify-content:center;">
+    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#64748b;">
+      <div style="width:24px; height:2px; background:#4ade80;"></div> git push/pull (bidirectionnel)
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#64748b;">
+      <div style="width:24px; height:2px; background:#60a5fa;"></div> rsync + SSH (Mac → Raspi)
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#64748b;">
+      <div style="width:12px; height:12px; border:1.5px dashed #1d4ed8; border-radius:3px;"></div> périmètre Docker
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#64748b;">
+      <div style="width:12px; height:12px; border:1px dashed #92400e; border-radius:3px;"></div> volume persistant
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f87171;">
+      🔑 .env — clés API, jamais versionné
+    </div>
+  </div>
+
+  <div class="footer">DonchianBot · Alpaca Markets · Donchian Channel V1.1 (Heiken Ashi, M30)</div>
+
+</body>
+</html>

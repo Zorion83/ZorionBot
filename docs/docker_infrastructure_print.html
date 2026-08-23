@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <title>DonchianBot — Infrastructure Docker</title>
+  <style>
+    @page { margin: 22mm 20mm 22mm 20mm; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #1e293b;
+      background: #ffffff;
+    }
+
+    /* ── Header ────────────────────────────────────────── */
+    .header {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 28px 32px 22px;
+      margin-bottom: 28px;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin-bottom: 6px;
+    }
+    .header .subtitle {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .header .badge {
+      display: inline-block;
+      background: #1e3a5f;
+      border: 1px solid #2563eb;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: #93c5fd;
+      margin-right: 6px;
+      margin-top: 8px;
+    }
+
+    /* ── Sections ───────────────────────────────────────── */
+    .section {
+      padding: 0 32px;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e3a5f;
+      margin: 14px 0 8px;
+    }
+
+    p { margin-bottom: 10px; color: #334155; }
+
+    /* ── Boîtes machines ──────────────────────────────── */
+    .machine-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .box {
+      border-radius: 8px;
+      padding: 14px 16px;
+      border: 1.5px solid;
+    }
+    .box-mac   { background: #f0f9ff; border-color: #7dd3fc; }
+    .box-raspi { background: #f0fdf4; border-color: #86efac; }
+    .box-note  { background: #fffbeb; border-color: #fcd34d; }
+    .box-warn  { background: #fff1f2; border-color: #fca5a5; }
+    .box-info  { background: #f8fafc; border-color: #cbd5e1; }
+
+    .box-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    .box-mac .box-title   { color: #0369a1; }
+    .box-raspi .box-title { color: #166534; }
+    .box-note .box-title  { color: #92400e; }
+    .box-warn .box-title  { color: #dc2626; }
+    .box-info .box-title  { color: #475569; }
+
+    /* ── Tables ─────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 14px;
+      font-size: 12px;
+    }
+    th {
+      background: #1e293b;
+      color: #f1f5f9;
+      padding: 7px 10px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: #f8fafc; }
+    tr:last-child td { border-bottom: none; }
+
+    /* ── Code ───────────────────────────────────────────── */
+    code {
+      font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+      font-size: 11.5px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: #0f172a;
+    }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 7px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      overflow: visible;
+      font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+      font-size: 11.5px;
+      line-height: 1.7;
+    }
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    /* ── Arbre de dossiers ───────────────────────────────── */
+    .tree {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 7px;
+      padding: 14px 16px;
+      font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+      font-size: 11.5px;
+      line-height: 1.8;
+      margin: 10px 0;
+    }
+    .tree .dir  { color: #7dd3fc; }
+    .tree .file { color: #94a3b8; }
+    .tree .key  { color: #fca5a5; }
+    .tree .data { color: #fcd34d; }
+
+    /* ── Containers grid ────────────────────────────────── */
+    .container-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .container-card {
+      border-radius: 7px;
+      padding: 11px 13px;
+      border: 1.5px solid;
+      text-align: center;
+    }
+    .c-caddy    { background: #f0f9ff; border-color: #7dd3fc; }
+    .c-homepage { background: #faf5ff; border-color: #c4b5fd; }
+    .c-swingbot { background: #f0fdf4; border-color: #86efac; }
+    .c-donchain { background: #f0fdf4; border-color: #16a34a; }
+
+    .c-name { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+    .c-desc { font-size: 11px; color: #64748b; }
+    .c-caddy .c-name    { color: #0369a1; }
+    .c-homepage .c-name { color: #7c3aed; }
+    .c-swingbot .c-name { color: #15803d; }
+    .c-donchain .c-name { color: #15803d; }
+
+    /* ── Règle critique ──────────────────────────────────── */
+    .rule-box {
+      background: #fff7ed;
+      border: 2px solid #f97316;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 12px 0;
+    }
+    .rule-title {
+      font-weight: 700;
+      color: #c2410c;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .rule-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .rule-label {
+      font-weight: 700;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .label-no  { background: #fca5a5; color: #7f1d1d; }
+    .label-yes { background: #86efac; color: #14532d; }
+
+    /* ── Steps numérotés ─────────────────────────────────── */
+    .steps { margin: 10px 0; }
+    .step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      align-items: flex-start;
+    }
+    .step-num {
+      min-width: 26px;
+      height: 26px;
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .step-content { flex: 1; }
+    .step-title { font-weight: 700; color: #0f172a; margin-bottom: 5px; }
+
+    /* ── Footer ──────────────────────────────────────────── */
+    .footer {
+      margin-top: 32px;
+      padding: 14px 32px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    /* ── Page break ───────────────────────────────────────── */
+    .page-break { page-break-before: always; }
+
+    ul { padding-left: 20px; margin-bottom: 10px; }
+    ul li { margin-bottom: 4px; color: #334155; }
+  </style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════ -->
+<div class="header">
+  <h1>🐳 DonchianBot — Infrastructure Docker</h1>
+  <div class="subtitle">Architecture de déploiement · Raspberry Pi 5 · Structure des volumes · Procédure de migration</div>
+  <div style="margin-top:10px;">
+    <span class="badge">Raspberry Pi 5</span>
+    <span class="badge">Debian ARM64</span>
+    <span class="badge">Docker 26.1.5</span>
+    <span class="badge">Docker Compose 2.26.1</span>
+    <span class="badge">Paper Trading</span>
+  </div>
+</div>
+
+<!-- ══ SECTION 1 : Vue d'ensemble ══════════════════════════════ -->
+<div class="section">
+  <h2>1 · Vue d'ensemble</h2>
+
+  <div class="box box-info" style="margin-bottom:14px;">
+    <div class="box-title">📌 Principe fondamental</div>
+    Docker tourne sur le <strong>Raspberry Pi</strong>, pas sur le Mac. Le Mac est uniquement la machine de développement
+    (édition du code + déploiement via SSH/rsync). Ce document décrit l'infrastructure à reproduire si tu changes de Raspi.
+  </div>
+
+  <div class="machine-grid">
+    <div class="box box-mac">
+      <div class="box-title">💻 MacBook Pro</div>
+      Claude Code · Git local · Scripts de déploiement<br/>
+      <code>rsync</code> + <code>SSH</code> vers le Raspi
+    </div>
+    <div class="box box-raspi">
+      <div class="box-title">🍓 Raspberry Pi 5</div>
+      Docker Engine · 4 containers en production<br/>
+      192.168.1.197 · Debian trixie · ARM64
+    </div>
+  </div>
+
+  <h3>4 containers actifs</h3>
+  <div class="container-grid">
+    <div class="container-card c-caddy">
+      <div class="c-name">🔒 caddy</div>
+      <div class="c-desc">Reverse proxy HTTPS<br/>Ports 80 / 443<br/>Auto-TLS</div>
+    </div>
+    <div class="container-card c-homepage">
+      <div class="c-name">📊 homepage</div>
+      <div class="c-desc">Dashboard monitoring<br/>Interface web</div>
+    </div>
+    <div class="container-card c-swingbot">
+      <div class="c-name">📈 swingbot</div>
+      <div class="c-desc">Autre bot de trading<br/>(projet séparé)</div>
+    </div>
+    <div class="container-card c-donchain">
+      <div class="c-name">🤖 donchianbot</div>
+      <div class="c-desc">Bot principal<br/>Boucle M30<br/>Python 3.11</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SECTION 2 : Structure des répertoires ══════════════════ -->
+<div class="section">
+  <h2>2 · Structure des répertoires</h2>
+
+  <div class="tree">
+<span class="dir">/srv/data/</span>              ← données persistantes (hors Docker)<br/>
+├── <span class="dir">donchianbot/</span><br/>
+│   ├── <span class="key">.env</span>             ← clés API  🔑  (jamais dans Git)<br/>
+│   ├── <span class="data">bot_state.json</span>  ← état du bot (résumés, signal cache)<br/>
+│   ├── <span class="data">candle_cache.json</span> ← ~150 KB, 3 actifs<br/>
+│   └── <span class="data">donchianbot.log</span> ← logs rotatifs max 3 × 10 MB<br/>
+├── <span class="dir">caddy/</span><br/>
+│   ├── <span class="file">Caddyfile</span>       ← configuration reverse proxy<br/>
+│   ├── <span class="dir">config/</span><br/>
+│   └── <span class="dir">data/</span>            ← certificats TLS (auto-générés)<br/>
+├── <span class="dir">homepage/</span><br/>
+│   ├── <span class="file">services.yaml</span>, <span class="file">widgets.yaml</span>, <span class="file">settings.yaml</span> …<br/>
+└── <span class="dir">swingbot/</span><br/>
+    ├── <span class="data">active_trades.json</span><br/>
+    └── <span class="data">swing_bot.log</span><br/>
+<br/>
+<span class="dir">~/DonchianBot/</span>           ← code source (cloné depuis GitHub)<br/>
+├── <span class="file">Dockerfile</span><br/>
+├── <span class="file">docker-compose.yml</span><br/>
+└── <span class="dir">app/</span>  main.py  strategy.py  …
+  </div>
+</div>
+
+<!-- ══ SECTION 3 : DonchianBot — Container principal ══════════ -->
+<div class="section page-break">
+  <h2>3 · DonchianBot — Container principal</h2>
+
+  <h3>Dockerfile</h3>
+  <pre><code>FROM --platform=linux/arm64 python:3.11.9-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ .
+
+RUN useradd -r -u 1000 botuser && chown -R botuser /app
+USER botuser
+
+CMD ["python", "-u", "main.py"]</code></pre>
+
+  <div class="box box-note" style="margin-bottom:14px;">
+    <div class="box-title">⚠️ Architecture ARM64</div>
+    <code>--platform=linux/arm64</code> cible le processeur du Raspi. Toujours builder <strong>sur le Raspi</strong>
+    via <code>docker compose up -d --build</code> — ne pas builder depuis un Mac Intel.
+  </div>
+
+  <h3>docker-compose.yml</h3>
+  <pre><code>services:
+  donchianbot:
+    container_name: donchianbot
+    build: .
+    restart: unless-stopped
+    env_file:
+      - /srv/data/donchianbot/.env       # clés API hors du code
+    volumes:
+      - /srv/data/donchianbot:/app/data  # seul dossier persistant
+    environment:
+      - DATA_DIR=/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"</code></pre>
+
+  <div class="rule-box">
+    <div class="rule-title">⚡ Règle critique de déploiement</div>
+    <div class="rule-row">
+      <span class="rule-label label-no">❌ JAMAIS</span>
+      <div><code>docker compose restart</code> — recharge le container mais <strong>pas le code</strong></div>
+    </div>
+    <div class="rule-row">
+      <span class="rule-label label-no">❌ JAMAIS</span>
+      <div><code>docker compose up -d</code> — utilise l'ancienne image sans rebuilder</div>
+    </div>
+    <div class="rule-row">
+      <span class="rule-label label-yes">✅ TOUJOURS</span>
+      <div><code>docker compose up -d --build</code> — rebuild l'image ET redémarre</div>
+    </div>
+  </div>
+
+  <h3>Fichiers du code (baked dans l'image au moment du build)</h3>
+  <table>
+    <tr><th>Fichier</th><th>Rôle</th></tr>
+    <tr><td><code>main.py</code></td><td>Boucle M30 · gate horaires US (13:30-20:00 UTC) · TP/SL monitoring · anti-doublon · plafond notionnel</td></tr>
+    <tr><td><code>strategy.py</code></td><td>Signaux LONG/SHORT · 5 conditions Donchian + Heiken Ashi + ZLMACD</td></tr>
+    <tr><td><code>indicators.py</code></td><td><code>donchian_channel()</code> · <code>heiken_ashi()</code> · <code>zlmacd()</code></td></tr>
+    <tr><td><code>alpaca_broker.py</code></td><td>Ordres market (simple, sans bracket) · positions · candles · <code>close_position()</code></td></tr>
+    <tr><td><code>telegram_notifier.py</code></td><td>Notifications · polling commandes Telegram</td></tr>
+    <tr><td><code>risk.py</code></td><td><code>calculate_size()</code> · <code>calculate_tp()</code></td></tr>
+    <tr><td><code>assets_config.py</code></td><td>SPY · QQQ · BTC/USD (config par actif : point_value, rr_ratio, crypto)</td></tr>
+    <tr><td><code>config.py</code></td><td>Lecture des variables d'environnement depuis <code>.env</code></td></tr>
+  </table>
+</div>
+
+<!-- ══ SECTION 4 : Variables d'environnement ══════════════════ -->
+<div class="section">
+  <h2>4 · Variables d'environnement</h2>
+
+  <div class="box box-warn" style="margin-bottom:14px;">
+    <div class="box-title">🔑 Fichier .env — jamais dans Git</div>
+    Stocké uniquement sur le Raspi : <code>/srv/data/donchianbot/.env</code><br/>
+    Pour sauvegarder avant de changer de machine :<br/>
+    <code>scp raspi-home:/srv/data/donchianbot/.env ~/Desktop/.env.backup</code>
+  </div>
+
+  <table>
+    <tr><th>Variable</th><th>Valeur actuelle</th><th>Description</th></tr>
+    <tr><td><code>ALPACA_API_KEY</code></td><td><em>PK…</em></td><td>Clé API Alpaca Markets</td></tr>
+    <tr><td><code>ALPACA_API_SECRET</code></td><td><em>secret</em></td><td>Secret API Alpaca</td></tr>
+    <tr><td><code>DEMO_MODE</code></td><td><code>true</code></td><td>Paper trading (false = live)</td></tr>
+    <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td><em>token</em></td><td>Token du bot Telegram</td></tr>
+    <tr><td><code>TELEGRAM_CHAT_ID</code></td><td><em>id</em></td><td>ID du canal/groupe Telegram</td></tr>
+    <tr><td><code>DONCHIAN_LENGTH</code></td><td><code>100</code></td><td>Période du canal de Donchian</td></tr>
+    <tr><td><code>LOOKBACK_CANDLES</code></td><td><code>500</code></td><td>Bougies historiques au démarrage</td></tr>
+    <tr><td><code>RISK_PCT</code></td><td><code>0.005</code></td><td>0,5 % du solde risqué par trade</td></tr>
+    <tr><td><code>POINT_VALUE</code></td><td><code>1.0</code></td><td>Valeur d'un point en USD</td></tr>
+    <tr><td><code>RR_RATIO</code></td><td><code>2.0</code></td><td>Ratio risque/rendement (TP = 2× SL)</td></tr>
+    <tr><td><code>LOG_LEVEL</code></td><td><code>INFO</code></td><td>Niveau de log</td></tr>
+    <tr><td><code>DATA_DIR</code></td><td><code>/app/data</code></td><td>Ne pas modifier</td></tr>
+  </table>
+</div>
+
+<!-- ══ SECTION 5 : Procédure de migration ══════════════════════ -->
+<div class="section page-break">
+  <h2>5 · Procédure de duplication sur un nouveau Raspi</h2>
+
+  <div class="steps">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">Sauvegarder le .env depuis l'ancien Raspi</div>
+        <pre><code>scp raspi-home:/srv/data/donchianbot/.env ~/Desktop/.env.backup</code></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">Installer Docker sur le nouveau Raspi</div>
+        <pre><code>curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Se déconnecter / reconnecter pour appliquer</code></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">Créer la structure des volumes</div>
+        <pre><code>sudo mkdir -p /srv/data/donchianbot
+sudo mkdir -p /srv/data/caddy/{config,data}
+sudo mkdir -p /srv/data/homepage/logs
+sudo mkdir -p /srv/data/swingbot
+sudo chown -R $USER:$USER /srv/data</code></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">Transférer les données persistantes</div>
+        <pre><code># Depuis le Mac (remplacer NOUVEAU_IP par l'IP du nouveau Raspi)
+ssh raspi-home "tar -czf - /srv/data/donchianbot" \
+  | ssh zorion@NOUVEAU_IP "tar -xzf - -C /"</code></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-title">Cloner le code et builder</div>
+        <pre><code>git clone https://github.com/Zorion83/DonchianBot.git ~/DonchianBot
+cd ~/DonchianBot
+docker compose up -d --build</code></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <div class="step-title">Vérifier</div>
+        <pre><code>docker ps -a
+docker logs donchianbot --tail=20</code></pre>
+      </div>
+    </div>
+
+  </div>
+
+  <h3>Commandes utiles au quotidien</h3>
+  <table>
+    <tr><th>Action</th><th>Commande</th></tr>
+    <tr><td>Voir les containers</td><td><code>ssh raspi-home "docker ps -a"</code></td></tr>
+    <tr><td>Logs en direct</td><td><code>ssh raspi-home "docker logs donchianbot --follow"</code></td></tr>
+    <tr><td>Déployer après modif du code</td><td><code>rsync -av app/ raspi-home:~/DonchianBot/app/ && ssh raspi-home "cd ~/DonchianBot && docker compose up -d --build"</code></td></tr>
+    <tr><td>Ressources CPU/RAM</td><td><code>ssh raspi-home "docker stats --no-stream"</code></td></tr>
+    <tr><td>Espace disque Docker</td><td><code>ssh raspi-home "docker system df"</code></td></tr>
+  </table>
+</div>
+
+<!-- ══ FOOTER ══════════════════════════════════════════════════ -->
+<div class="footer">
+  <span>DonchianBot · github.com/Zorion83/DonchianBot</span>
+  <span>Raspberry Pi 5 · Docker 26.1.5 · Python 3.11 · Alpaca Markets</span>
+</div>
+
+</body>
+</html>
