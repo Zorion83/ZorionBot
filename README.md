@@ -1,4 +1,4 @@
-# DonchianBot
+# ZorionBot
 
 Bot de trading autonome basé sur la stratégie **Donchian Channel V1.1 — Heiken Ashi** (traduction fidèle du Pine Script TradingView).
 
@@ -47,26 +47,26 @@ Le bot détecte des signaux de retournement en bordure du canal de Donchian. Les
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/Zorion83/DonchianBot.git
-cd DonchianBot
+git clone https://github.com/Zorion83/ZorionBot.git
+cd ZorionBot
 ```
 
 ### 2. Créer le fichier de configuration
 
 ```bash
 # Créer le répertoire de données (à adapter selon votre machine)
-sudo mkdir -p /srv/data/donchianbot
+sudo mkdir -p /srv/data/zorionbot
 
 # Copier le fichier de config exemple
-cp .env.example /srv/data/donchianbot/.env
+cp .env.example /srv/data/zorionbot/.env
 ```
 
 ### 3. Remplir le fichier `.env`
 
-Éditez `/srv/data/donchianbot/.env` :
+Éditez `/srv/data/zorionbot/.env` :
 
 ```bash
-nano /srv/data/donchianbot/.env
+nano /srv/data/zorionbot/.env
 ```
 
 #### Section BROKER — IG Markets
@@ -164,7 +164,7 @@ Le bot démarre, se connecte à IG Markets, charge les bougies historiques et at
 ## Structure des fichiers
 
 ```
-DonchianBot/
+ZorionBot/
 ├── app/
 │   ├── main.py               # Boucle principale M30
 │   ├── config.py             # Lecture des variables .env
@@ -234,11 +234,11 @@ Le Dockerfile est configuré pour l'architecture ARM64 :
 
 ```bash
 # Sur la Raspi — cloner et lancer
-git clone https://github.com/Zorion83/DonchianBot.git
-cd DonchianBot
+git clone https://github.com/Zorion83/ZorionBot.git
+cd ZorionBot
 
-sudo mkdir -p /srv/data/donchianbot
-sudo cp .env.example /srv/data/donchianbot/.env
+sudo mkdir -p /srv/data/zorionbot
+sudo cp .env.example /srv/data/zorionbot/.env
 # Remplir le .env et assets_config.py, puis :
 docker compose up -d
 ```
