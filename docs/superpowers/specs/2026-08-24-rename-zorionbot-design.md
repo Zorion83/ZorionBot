@@ -72,6 +72,14 @@ Le dossier racine du clone principal (`~/01_PROJETS/00_DEV/Algo_B&G/DonchianBot`
 - `docker compose config` sur `docker-compose.yml` pour confirmer qu'il reste syntaxiquement valide (il n'est pas modifié, donc régression nulle attendue — vérification de non-régression).
 - Grep final de contrôle : `grep -rniE "donchianbot"` sur le repo doit ne plus remonter que les occurrences volontairement conservées (`docker-compose.yml`, `docs/DOCKER_INFRASTRUCTURE.md`, `docs/TRANSFER.md`).
 
+## Addendum — machines annexes (minipc)
+
+Découvert en cours de session : le mini-PC (`minipc`, Windows, Tailscale, accessible) héberge deux éléments supplémentaires liés au projet, tous deux dans le périmètre de cette Phase 1 :
+
+- **Un clone git** à `Documents\Claude\Projects\Dev - Raspi - GitHub\DonchianBot` — même traitement que le clone principal du Mac : après le merge sur `main`, pull, mise à jour du remote `origin`, renommage du dossier en `ZorionBot`.
+- **Un vault Obsidian** (`Zorion-AI's brain`) avec un dossier de notes `Projects\DonchianBot` (Journal, Décisions, Trades, Infrastructure, Configurations, Déploiement, Commandes utiles, Accès SSH, Variables env, Mobile & monitoring — activement tenu à jour). Traitement demandé par le propriétaire : « dans la même logique qu'ici », c'est-à-dire la même règle que pour `DOCKER_INFRASTRUCTURE.md`/`TRANSFER.md` — renommer le dossier et les mentions de marque (« DonchianBot » comme nom de projet), mais **laisser inchangés** les chemins/commandes qui décrivent l'infrastructure Pi réelle actuelle (`/srv/data/donchianbot`, `~/DonchianBot` sur le Pi, `container_name: donchianbot`, commandes SSH/Docker littérales) jusqu'à la migration de septembre. Ce tri nécessite de lire le contenu de chaque note plutôt qu'un remplacement global — traité comme une tâche d'exécution assistée manuelle, pas de remplacement automatique aveugle, notamment pour `Accès SSH.md` et `Variables env.md` qui contiennent des informations sensibles (aucune valeur sensible n'est modifiée, seul le texte « DonchianBot » l'est).
+- Ce contenu (notes personnelles, potentiellement sensibles) ne doit **jamais** être recopié dans ce dépôt Git (spec, plan, commits) — seules les décisions de traitement le sont, pas le contenu des notes lui-même.
+
 ## Hors périmètre (rappel)
 
 - Phase 2 : isolation des stratégies dans des sous-dossiers dédiés + registre de symboles de suivi des performances (Mean Reversion v5 = symbole 1️⃣, stratégies inactives = code 99). Fera l'objet d'un design séparé une fois cette Phase 1 mergée.
