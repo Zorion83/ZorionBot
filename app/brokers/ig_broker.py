@@ -291,9 +291,14 @@ class IGBroker(BaseBroker):
             logger.warning("get_closed_orders_since failed: %s", e)
             return []
 
+        # NB : /history/transactions renvoie des DEALS COMPLETS (ouverture+clôture
+        # déjà appariées par IG, avec openLevel/closeLevel/profitAndLoss), pas des
+        # fills individuels façon Alpaca. "transactionType" est localisé (ex. "ORDRE"
+        # sur un compte démo FR, probablement "DEAL" en EN) — filtrer sur ce libellé
+        # est fragile ; `cashTransaction` (dépôts/retraits vs trades) ne l'est pas.
         results = []
         for tx in resp.json().get("transactions", []):
-            if tx.get("transactionType") not in ("DEAL", "TRADE"):
+            if tx.get("cashTransaction", True):
                 continue
             pnl_str = (tx.get("profitAndLoss") or "").strip()
             digits  = "".join(ch for ch in pnl_str if ch.isdigit() or ch in ".-")
@@ -301,8 +306,11 @@ class IGBroker(BaseBroker):
                 pnl = float(digits)
             except ValueError:
                 continue
-            size_str  = str(tx.get("size", ""))
-            closing   = "sell" if size_str.startswith("-") else "buy"
+            # "size" reflète la direction du trade ORIGINAL (négatif = short/SELL,
+            # positif = long/BUY) ; le "side" attendu par main.py est celui de
+            # l'action de CLÔTURE, donc inversé par rapport au signe de size.
+            size_str = str(tx.get("size", ""))
+            closing  = "buy" if size_str.startswith("-") else "sell"
             try:
                 close_level = float(tx.get("closeLevel") or 0)
             except (TypeError, ValueError):

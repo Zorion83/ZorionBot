@@ -7,8 +7,8 @@ from indicators import atr, bollinger, ema, rsi
 from strategy_meanrev import MIN_CANDLES, analyse_meanrev
 
 GOLD_CFG = {
-    "symbol":        "CS.D.CFDGOLD.CFM.IP",
-    "contract_size": 10.0,
+    "symbol":        "CS.D.CFEGOLD.CEF.IP",
+    "contract_size": 1.0,
     "currency_code": "USD",
 }
 
