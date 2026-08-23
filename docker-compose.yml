@@ -9,6 +9,8 @@ services:
       - /srv/data/donchianbot:/app/data
     environment:
       - DATA_DIR=/app/data
+      - MR_TP_ATR=1.0
+      - MR_TIME_STOP=48
     logging:
       driver: "json-file"
       options:
