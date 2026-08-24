@@ -1,5 +1,7 @@
 # Infrastructure Docker — Raspberry Pi 5
 
+> ⚠️ **Renommage du projet en cours (2026-08)** : `DonchianBot` devient `ZorionBot`. Ce document décrit encore l'infrastructure réelle du Pi sous l'ancien nom (`donchianbot`, `/srv/data/donchianbot`) — ces chemins ne changeront qu'à la migration planifiée pour septembre 2026. Voir [`docs/PI_MIGRATION_ZORIONBOT.md`](./PI_MIGRATION_ZORIONBOT.md).
+
 > **Note importante** : Docker tourne sur le **Raspberry Pi**, pas sur le Mac.
 > Le Mac est uniquement la machine de développement (éditeur de code + déploiement via SSH/rsync).
 > Ce document décrit l'infrastructure à reproduire si tu changes de Raspi.
@@ -230,7 +232,7 @@ ssh raspi-home "tar -czf - /srv/data/caddy" | ssh zorion@NOUVEAU_RASPI_IP "tar -
 
 ```bash
 # Sur le nouveau Raspi
-git clone https://github.com/Zorion83/DonchianBot.git ~/DonchianBot
+git clone https://github.com/Zorion83/ZorionBot.git ~/DonchianBot
 cd ~/DonchianBot
 docker compose up -d --build
 ```

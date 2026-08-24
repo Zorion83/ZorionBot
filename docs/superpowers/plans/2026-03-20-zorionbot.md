@@ -1,4 +1,4 @@
-# DonchianBot Implementation Plan
+# ZorionBot Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -26,7 +26,7 @@
 | `app/main.py` | M30 loop, candle cache, orchestration |
 | `app/requirements.txt` | Python dependencies |
 | `Dockerfile` | Docker image definition |
-| `docker-compose.yml` | Service `donchianbot` |
+| `docker-compose.yml` | Service `zorionbot` |
 | `.env.example` | Fully commented blank config |
 | `.gitignore` | Ignore .env, data/, logs/, __pycache__ |
 | `tests/test_risk.py` | Unit tests for risk.py |
@@ -38,14 +38,14 @@
 ## Task 1: Project Scaffold
 
 **Files:**
-- Create: `DonchianBot/app/requirements.txt`
-- Create: `DonchianBot/Dockerfile`
-- Create: `DonchianBot/docker-compose.yml`
-- Create: `DonchianBot/.env.example`
-- Create: `DonchianBot/.gitignore`
-- Create: `DonchianBot/app/brokers/__init__.py`
-- Create: `DonchianBot/tests/__init__.py`
-- Create: `DonchianBot/tests/conftest.py`
+- Create: `ZorionBot/app/requirements.txt`
+- Create: `ZorionBot/Dockerfile`
+- Create: `ZorionBot/docker-compose.yml`
+- Create: `ZorionBot/.env.example`
+- Create: `ZorionBot/.gitignore`
+- Create: `ZorionBot/app/brokers/__init__.py`
+- Create: `ZorionBot/tests/__init__.py`
+- Create: `ZorionBot/tests/conftest.py`
 
 - [ ] **Step 1: Create `app/requirements.txt`**
 
@@ -53,7 +53,7 @@
 httpx==0.27.0
 ```
 
-Create also `requirements-dev.txt` at the root of `DonchianBot/` for development:
+Create also `requirements-dev.txt` at the root of `ZorionBot/` for development:
 ```
 pytest==8.1.1
 ```
@@ -79,14 +79,14 @@ CMD ["python", "-u", "main.py"]
 
 ```yaml
 services:
-  donchianbot:
-    container_name: donchianbot
+  zorionbot:
+    container_name: zorionbot
     build: .
     restart: unless-stopped
     env_file:
-      - /srv/data/donchianbot/.env
+      - /srv/data/zorionbot/.env
     volumes:
-      - /srv/data/donchianbot:/app/data
+      - /srv/data/zorionbot:/app/data
     environment:
       - DATA_DIR=/app/data
 ```
@@ -208,8 +208,8 @@ git commit -m "chore: project scaffold — Dockerfile, docker-compose, .env.exam
 ## Task 2: `risk.py` — Calcul de position (TDD)
 
 **Files:**
-- Create: `DonchianBot/app/risk.py`
-- Create: `DonchianBot/tests/test_risk.py`
+- Create: `ZorionBot/app/risk.py`
+- Create: `ZorionBot/tests/test_risk.py`
 
 - [ ] **Step 1: Écrire les tests**
 
@@ -257,7 +257,7 @@ class TestCalculateTp:
 - [ ] **Step 2: Lancer les tests → vérifier qu'ils échouent**
 
 ```bash
-cd DonchianBot
+cd ZorionBot
 python -m pytest tests/test_risk.py -v
 ```
 Attendu : `ModuleNotFoundError: No module named 'risk'`
@@ -328,8 +328,8 @@ git commit -m "feat: add risk.py — calculate_size and calculate_tp"
 ## Task 3: `indicators.py` — Donchian + ZL-MACD (TDD)
 
 **Files:**
-- Create: `DonchianBot/app/indicators.py`
-- Create: `DonchianBot/tests/test_indicators.py`
+- Create: `ZorionBot/app/indicators.py`
+- Create: `ZorionBot/tests/test_indicators.py`
 
 - [ ] **Step 1: Écrire les tests**
 
@@ -502,7 +502,7 @@ git commit -m "feat: add indicators.py — donchian_channel and zlmacd"
 ## Task 4: `brokers/base_broker.py` — Interface abstraite
 
 **Files:**
-- Create: `DonchianBot/app/brokers/base_broker.py`
+- Create: `ZorionBot/app/brokers/base_broker.py`
 
 - [ ] **Step 1: Implémenter `app/brokers/base_broker.py`**
 
@@ -588,7 +588,7 @@ class BaseBroker(ABC):
 - [ ] **Step 2: Vérifier que l'interface est importable**
 
 ```bash
-cd DonchianBot
+cd ZorionBot
 python -c "from app.brokers.base_broker import BaseBroker, BrokerError; print('OK')"
 ```
 Attendu : `OK`
@@ -605,8 +605,8 @@ git commit -m "feat: add BaseBroker abstract interface and BrokerError"
 ## Task 5: `config.py` + `assets_config.py`
 
 **Files:**
-- Create: `DonchianBot/app/config.py`
-- Create: `DonchianBot/app/assets_config.py`
+- Create: `ZorionBot/app/config.py`
+- Create: `ZorionBot/app/assets_config.py`
 
 - [ ] **Step 1: Implémenter `app/config.py`**
 
@@ -639,7 +639,7 @@ RR_RATIO     = float(os.environ.get("RR_RATIO", "2.0"))
 
 # ── Logs ──────────────────────────────────────────────────────────
 DATA_DIR  = os.environ.get("DATA_DIR", "/app/data")
-LOG_FILE  = os.path.join(DATA_DIR, "donchianbot.log")
+LOG_FILE  = os.path.join(DATA_DIR, "zorionbot.log")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 ```
 
@@ -647,7 +647,7 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 ```python
 # ──────────────────────────────────────────────────────────────────────────────
-# assets_config.py — Configuration des actifs pour le DonchianBot
+# assets_config.py — Configuration des actifs pour le ZorionBot
 #
 # Remplir ce fichier avec les actifs à surveiller avant de démarrer le bot.
 #
@@ -704,7 +704,7 @@ git commit -m "feat: add config.py and assets_config.py"
 ## Task 6: `brokers/ig_broker.py` — Implémentation IG Markets
 
 **Files:**
-- Create: `DonchianBot/app/brokers/ig_broker.py`
+- Create: `ZorionBot/app/brokers/ig_broker.py`
 
 - [ ] **Step 1: Implémenter `app/brokers/ig_broker.py`**
 
@@ -918,7 +918,7 @@ git commit -m "feat: add IGBroker — IG Markets REST API implementation"
 ## Task 7: `telegram_notifier.py`
 
 **Files:**
-- Create: `DonchianBot/app/telegram_notifier.py`
+- Create: `ZorionBot/app/telegram_notifier.py`
 
 - [ ] **Step 1: Implémenter `app/telegram_notifier.py`**
 
@@ -957,13 +957,13 @@ class TelegramNotifier:
             logger.warning("Telegram send échoué: %s", e)
 
     async def send_test_message(self) -> None:
-        await self._send("✅ DonchianBot connecté et opérationnel.")
+        await self._send("✅ ZorionBot connecté et opérationnel.")
 
     async def send_startup(self, demo: bool, assets: list) -> None:
         mode = "DÉMO" if demo else "LIVE ⚠️"
         assets_str = ", ".join(assets) if assets else "aucun actif configuré"
         await self._send(
-            f"🤖 <b>DonchianBot démarré</b>\n"
+            f"🤖 <b>ZorionBot démarré</b>\n"
             f"Mode : {mode}\n"
             f"Actifs : {assets_str}"
         )
@@ -984,7 +984,7 @@ class TelegramNotifier:
 
     async def send_daily_summary(self, trades_today: int, open_positions: list) -> None:
         await self._send(
-            f"📊 <b>Résumé quotidien DonchianBot</b>\n"
+            f"📊 <b>Résumé quotidien ZorionBot</b>\n"
             f"Trades du jour : {trades_today}\n"
             f"Positions ouvertes : {len(open_positions)}"
         )
@@ -1009,8 +1009,8 @@ git commit -m "feat: add TelegramNotifier"
 ## Task 8: `strategy.py` — Logique des signaux (TDD)
 
 **Files:**
-- Create: `DonchianBot/app/strategy.py`
-- Create: `DonchianBot/tests/test_strategy.py`
+- Create: `ZorionBot/app/strategy.py`
+- Create: `ZorionBot/tests/test_strategy.py`
 
 - [ ] **Step 1: Écrire les tests**
 
@@ -1333,14 +1333,14 @@ git commit -m "feat: add strategy.py — LONG/SHORT signal logic"
 ## Task 9: `main.py` — Boucle principale M30
 
 **Files:**
-- Create: `DonchianBot/app/main.py`
+- Create: `ZorionBot/app/main.py`
 
 - [ ] **Step 1: Implémenter `app/main.py`**
 
 ```python
 #!/usr/bin/env python3
 """
-main.py — Boucle principale du DonchianBot
+main.py — Boucle principale du ZorionBot
 Stratégie : Donchian Channel V1.1 (LONG + SHORT)
 Timeframe : M30
 """
@@ -1375,7 +1375,7 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
-logger = logging.getLogger("DonchianBot")
+logger = logging.getLogger("ZorionBot")
 
 # ── Cache bougies ─────────────────────────────────────────────────
 _candle_cache: dict = {}
@@ -1516,13 +1516,13 @@ async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
                 if signal["direction"] == "BUY":
                     await broker.open_long(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 else:
                     await broker.open_short(
                         epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"DonchianBot_{asset_name}",
+                        comment=f"ZorionBot_{asset_name}",
                         currency_code=asset_config.get("currency_code", "EUR"),
                     )
                 await telegram.send_signal(signal, DEMO_MODE)
@@ -1543,7 +1543,7 @@ async def run_cycle(broker: IGBroker, telegram: TelegramNotifier) -> int:
 
 async def main():
     logger.info("╔══════════════════════════════╗")
-    logger.info("║   DonchianBot démarré        ║")
+    logger.info("║   ZorionBot démarré        ║")
     logger.info("║  Mode : %-6s               ║", "DÉMO" if DEMO_MODE else "LIVE")
     logger.info("╚══════════════════════════════╝")
 
@@ -1600,7 +1600,7 @@ async def main():
             await asyncio.sleep(60)
 
     await broker.disconnect()
-    logger.info("DonchianBot arrêté.")
+    logger.info("ZorionBot arrêté.")
 
 
 if __name__ == "__main__":
@@ -1631,8 +1631,8 @@ git commit -m "feat: add main.py — M30 main loop with 3-level candle cache"
 - [ ] **Step 1: Builder l'image Docker**
 
 ```bash
-cd DonchianBot
-docker build -t donchianbot:test .
+cd ZorionBot
+docker build -t zorionbot:test .
 ```
 Attendu : `Successfully built ...`
 
@@ -1647,7 +1647,7 @@ docker run --rm \
   -e TELEGRAM_CHAT_ID="" \
   -e DEMO_MODE=true \
   -e DATA_DIR=/tmp \
-  donchianbot:test python -c "import main; print('Import OK')"
+  zorionbot:test python -c "import main; print('Import OK')"
 ```
 Attendu : `Import OK`
 
