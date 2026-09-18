@@ -1,12 +1,12 @@
 services:
-  donchianbot:
-    container_name: donchianbot
+  donchianbot-v2:
+    container_name: donchianbot-v2
     build: .
     restart: unless-stopped
     env_file:
-      - /srv/data/donchianbot/.env
+      - /srv/data/donchianbot-v2/.env
     volumes:
-      - /srv/data/donchianbot:/app/data
+      - /srv/data/donchianbot-v2:/app/data
     environment:
       - DATA_DIR=/app/data
       - MR_TP_ATR=1.0
