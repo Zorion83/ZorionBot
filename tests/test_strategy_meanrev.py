@@ -128,6 +128,12 @@ def test_tp_sl_ratio_is_tenth():
     assert tp_dist / sl_dist == pytest.approx(0.1, rel=0.05)  # 0.5 ATR vs 5 ATR
 
 
+def test_signal_includes_atr():
+    candles = _trending_candles_with_dip()
+    sig = analyse_meanrev("GOLD", GOLD_CFG, candles, risk_amount=500.0)
+    assert sig["atr"] > 0.0
+
+
 def test_no_signal_in_quiet_uptrend():
     closes = [3000.0 + i * 0.5 for i in range(MIN_CANDLES + 40)]
     candles = make_candles(closes)

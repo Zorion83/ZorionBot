@@ -100,4 +100,5 @@ def analyse_meanrev(
         "qty":         qty,
         "asset_name":  asset_name,
         "symbol":      asset_config["symbol"],
+        "atr":         round(atr_val, 4),
     }

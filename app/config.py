@@ -33,6 +33,10 @@ MR_ATR_LEN    = int(os.environ.get("MR_ATR_LEN", "14"))
 MR_TP_ATR     = float(os.environ.get("MR_TP_ATR", "0.5"))
 MR_SL_ATR     = float(os.environ.get("MR_SL_ATR", "5.0"))
 MR_TIME_STOP  = int(os.environ.get("MR_TIME_STOP", "16"))    # barres M30 (16 = 8h)
+MR_TP1_ATR    = float(os.environ.get("MR_TP1_ATR", "1.0"))
+MR_TP2_ATR    = float(os.environ.get("MR_TP2_ATR", "2.0"))
+MR_TP3_ATR    = float(os.environ.get("MR_TP3_ATR", "3.0"))
+MR_BREAKEVEN_BUFFER_ATR = float(os.environ.get("MR_BREAKEVEN_BUFFER_ATR", "0.2"))
 MR_SESS_START = int(os.environ.get("MR_SESS_START", "5"))    # heure UTC
 MR_SESS_END   = int(os.environ.get("MR_SESS_END", "22"))
 
