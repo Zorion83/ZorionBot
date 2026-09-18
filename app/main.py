@@ -532,8 +532,10 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
     # Alpaca simple orders n'ont pas de SL/TP attachés.
     # Le bot les surveille ici à chaque cycle pour tous les actifs.
     for pos in open_positions:
-        epic = pos["epic"]
-        cache = _signal_cache.get(epic)
+        epic      = pos["epic"]
+        deal_id   = pos["deal_id"]
+        cache_key = deal_id if BROKER == "ig" else epic
+        cache     = _signal_cache.get(cache_key)
         if not cache:
             continue
         current_price = pos.get("current_price", 0.0)
@@ -558,7 +560,10 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             )
             logger.info("TP/SL triggered — %s | %s | liquidation en cours", epic, reason)
             try:
-                await broker.close_position(epic)
+                if BROKER == "ig":
+                    await broker.close_position(epic, deal_id=deal_id)
+                else:
+                    await broker.close_position(epic)
                 # Journal + Telegram close notification handled next cycle
                 # via _prev_positions detection + get_closed_orders_since()
                 await telegram._send(
@@ -571,8 +576,9 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
     # ── Time stop (mean reversion) : clôture après MR_TIME_STOP barres ─
     if BROKER == "ig":
         for pos in open_positions:
-            epic  = pos["epic"]
-            cache = _signal_cache.get(epic)
+            epic    = pos["epic"]
+            deal_id = pos["deal_id"]
+            cache   = _signal_cache.get(deal_id)
             opened_iso = (cache or {}).get("opened_at") or pos.get("created_at")
             if not opened_iso:
                 continue
@@ -587,7 +593,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 logger.info("Time stop — %s ouvert depuis %.1f barres (max %d), clôture",
                             epic, bars_held, MR_TIME_STOP)
                 try:
-                    await broker.close_position(epic)
+                    await broker.close_position(epic, deal_id=deal_id)
                     await telegram._send(
                         f"⏱ <b>{epic}</b> — time stop ({MR_TIME_STOP} barres), "
                         f"clôture au marché"
