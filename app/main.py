@@ -20,6 +20,7 @@ from config import (
     POINT_VALUE, RR_RATIO,
     MR_BB_LEN, MR_BB_STD, MR_RSI_LEN, MR_RSI_LO, MR_EMA_LEN, MR_ATR_LEN,
     MR_TP_ATR, MR_SL_ATR, MR_TIME_STOP, MR_SESS_START, MR_SESS_END,
+    MR_TP1_ATR, MR_TP2_ATR, MR_TP3_ATR, MR_BREAKEVEN_BUFFER_ATR,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
 from assets_config import ENABLED_ASSETS
@@ -28,6 +29,7 @@ from brokers.ig_broker import IGBroker
 from brokers.base_broker import BrokerError
 from strategy import analyse_asset
 from strategy_meanrev import analyse_meanrev
+from position_scaling import build_scaled_orders
 from telegram_notifier import TelegramNotifier, _format_open_position
 
 # ── Logging ───────────────────────────────────────────────────────
@@ -727,51 +729,103 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                 )
                 continue
 
-            # Place the order
-            try:
-                if signal["direction"] == "BUY":
-                    await broker.open_long(
-                        epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"ZorionBot_{asset_name}",
-                        currency_code=asset_config.get("currency_code", "EUR"),
-                    )
-                else:
-                    await broker.open_short(
-                        epic, signal["qty"], signal["sl_price"], signal["tp_price"],
-                        comment=f"ZorionBot_{asset_name}",
-                        currency_code=asset_config.get("currency_code", "EUR"),
-                    )
-                # ── Ordre accepté : incrémenter le compteur et mémoriser SL/TP ──
-                signals_found += 1
-                _signal_cache[epic] = {
-                    "sl":         signal["sl_price"],
-                    "tp":         signal["tp_price"],
-                    "qty":        signal["qty"],
-                    "entry":      signal["entry_price"],
-                    "asset_name": asset_name,
-                    "direction":  signal["direction"],
-                    "opened_at":  now.isoformat(),
-                }
-                _save_state({"open_signal_cache": _signal_cache})
-                # Enregistrer immédiatement dans _prev_positions (pas seulement au
-                # prochain cycle) : sur IG, TP/SL sont natifs et une position peut
-                # s'ouvrir ET se clôturer en quelques minutes, avant le prochain
-                # fetch — sans cet ajout immédiat, sa clôture serait invisible
-                # (jamais capturée "ouverte" par aucun snapshot) et jamais journalisée.
-                _prev_positions[epic] = {
-                    "direction":   signal["direction"],
-                    "entry_price": signal["entry_price"],
-                    "qty":         signal["qty"],
-                }
-                await telegram.send_signal(signal, DEMO_MODE)
-
-            except BrokerError as e:
-                logger.error("BrokerError %s: %s", asset_name, e)
-                _order_failure_cooldown[epic] = now.isoformat()
-                await telegram.send_error(
-                    f"Order {asset_name}",
-                    f"{e}\n⏸ Pas de nouvelle tentative pendant {_ORDER_FAILURE_COOLDOWN_MINUTES} min.",
+            # Place the order(s)
+            if BROKER == "ig":
+                orders = build_scaled_orders(
+                    signal, risk_amount, contract_size,
+                    tp_atr_multipliers=(MR_TP1_ATR, MR_TP2_ATR, MR_TP3_ATR),
                 )
+                any_failed = False
+                for order in orders:
+                    try:
+                        if order["direction"] == "BUY":
+                            deal_id = await broker.open_long(
+                                epic, order["qty"], order["sl_price"], order["tp_price"],
+                                comment=f"ZorionBot_{asset_name}_T{order['tier']}",
+                                currency_code=asset_config.get("currency_code", "EUR"),
+                            )
+                        else:
+                            deal_id = await broker.open_short(
+                                epic, order["qty"], order["sl_price"], order["tp_price"],
+                                comment=f"ZorionBot_{asset_name}_T{order['tier']}",
+                                currency_code=asset_config.get("currency_code", "EUR"),
+                            )
+                        if not deal_id:
+                            raise BrokerError(
+                                f"Aucun deal_id retourné pour le palier {order['tier']}"
+                            )
+
+                        signals_found += 1
+                        _signal_cache[deal_id] = {
+                            "epic":       epic,
+                            "asset_name": asset_name,
+                            "direction":  order["direction"],
+                            "tier":       order["tier"],
+                            "entry":      order["entry_price"],
+                            "sl":         order["sl_price"],
+                            "tp":         order["tp_price"],
+                            "atr":        signal["atr"],
+                            "qty":        order["qty"],
+                            "opened_at":  now.isoformat(),
+                        }
+                        _prev_positions[deal_id] = {
+                            "epic":        epic,
+                            "direction":   order["direction"],
+                            "entry_price": order["entry_price"],
+                            "qty":         order["qty"],
+                        }
+                        await telegram.send_signal(order, DEMO_MODE)
+
+                    except BrokerError as e:
+                        any_failed = True
+                        logger.error("BrokerError %s tier %d: %s", asset_name, order["tier"], e)
+                        await telegram.send_error(f"Order {asset_name} tier {order['tier']}", str(e))
+
+                if orders:
+                    _save_state({"open_signal_cache": _signal_cache})
+                if any_failed:
+                    _order_failure_cooldown[epic] = now.isoformat()
+
+            else:
+                # Chemin Alpaca (legacy) — comportement inchangé, une seule position.
+                try:
+                    if signal["direction"] == "BUY":
+                        await broker.open_long(
+                            epic, signal["qty"], signal["sl_price"], signal["tp_price"],
+                            comment=f"ZorionBot_{asset_name}",
+                            currency_code=asset_config.get("currency_code", "EUR"),
+                        )
+                    else:
+                        await broker.open_short(
+                            epic, signal["qty"], signal["sl_price"], signal["tp_price"],
+                            comment=f"ZorionBot_{asset_name}",
+                            currency_code=asset_config.get("currency_code", "EUR"),
+                        )
+                    signals_found += 1
+                    _signal_cache[epic] = {
+                        "sl":         signal["sl_price"],
+                        "tp":         signal["tp_price"],
+                        "qty":        signal["qty"],
+                        "entry":      signal["entry_price"],
+                        "asset_name": asset_name,
+                        "direction":  signal["direction"],
+                        "opened_at":  now.isoformat(),
+                    }
+                    _save_state({"open_signal_cache": _signal_cache})
+                    _prev_positions[epic] = {
+                        "direction":   signal["direction"],
+                        "entry_price": signal["entry_price"],
+                        "qty":         signal["qty"],
+                    }
+                    await telegram.send_signal(signal, DEMO_MODE)
+
+                except BrokerError as e:
+                    logger.error("BrokerError %s: %s", asset_name, e)
+                    _order_failure_cooldown[epic] = now.isoformat()
+                    await telegram.send_error(
+                        f"Order {asset_name}",
+                        f"{e}\n⏸ Pas de nouvelle tentative pendant {_ORDER_FAILURE_COOLDOWN_MINUTES} min.",
+                    )
 
         except Exception as e:
             logger.error("Error %s: %s", asset_name, e, exc_info=True)
