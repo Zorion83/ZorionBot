@@ -97,9 +97,12 @@ class BaseBroker(ABC):
         """
 
     @abstractmethod
-    async def amend_stop(self, deal_id: str, new_sl: float) -> None:
+    async def amend_stop(self, deal_id: str, new_sl: float, tp: float = None) -> None:
         """
         Move the stop loss of an already-open position to `new_sl`, without closing it.
         Used to move a runner to breakeven once a sibling position's TP is hit.
+        If `tp` is given, implementations should also resend it to preserve the
+        position's existing take-profit level (some brokers use replace semantics
+        where omitting it could clear the TP).
         Raises BrokerError if the broker rejects the amendment or does not support it.
         """

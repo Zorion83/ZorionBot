@@ -279,9 +279,16 @@ class IGBroker(BaseBroker):
         logger.info("Close %s (deal_id=%s) placed — dealRef: %s", symbol, pos["deal_id"], deal_ref)
         await self._confirm(deal_ref, "CLOSE", symbol)
 
-    async def amend_stop(self, deal_id: str, new_sl: float) -> None:
-        """Déplace le SL d'une position déjà ouverte (breakeven) sans la fermer."""
+    async def amend_stop(self, deal_id: str, new_sl: float, tp: float = None) -> None:
+        """Déplace le SL d'une position déjà ouverte (breakeven) sans la fermer.
+
+        IG's PUT /positions/otc/{dealId} peut être en sémantique "remplace" : omettre
+        limitLevel risquerait d'effacer le TP existant de la position. Si `tp` est
+        fourni, on le renvoie pour le préserver (voir revue finale #5c).
+        """
         payload = {"stopLevel": str(round(new_sl, 2))}
+        if tp is not None:
+            payload["limitLevel"] = str(round(tp, 2))
         await self._request("PUT", f"/positions/otc/{deal_id}", version="2", json_body=payload)
         logger.info("SL amendé — deal_id=%s → %.2f", deal_id, new_sl)
 

@@ -276,7 +276,7 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError(f"Network error closing position {symbol}: {e}") from e
         logger.info("Position %s liquidated via DELETE /v2/positions", symbol)
 
-    async def amend_stop(self, deal_id: str, new_sl: float) -> None:
+    async def amend_stop(self, deal_id: str, new_sl: float, tp: float = None) -> None:
         raise BrokerError(
             "amend_stop non supporté par AlpacaBroker — non utilisé par la stratégie legacy"
         )
