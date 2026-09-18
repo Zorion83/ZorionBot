@@ -88,7 +88,9 @@ def _save_state(updates: dict) -> None:
 # ── Trade journal (historique mensuel) ───────────────────────────
 _JOURNAL_FILE = os.path.join(DATA_DIR, "trade_journal.json")
 _journal: dict = {}          # chargé dans main()
-_signal_cache: dict = {}     # {symbol: {sl, tp, qty, entry, asset_name, direction, opened_at}}
+# IG : {deal_id: {epic, sl, tp, qty, entry, tier, asset_name, direction, atr, opened_at}}
+# Alpaca (legacy) : {epic: {sl, tp, qty, entry, asset_name, direction, opened_at}}
+_signal_cache: dict = {}
 
 
 def _rotate_journal_if_needed(journal: dict) -> dict:
@@ -167,7 +169,8 @@ _prev_long:  dict = {}   # {epic: bool}
 _prev_short: dict = {}   # {epic: bool}
 
 # ── Position tracking (closed trade detection) ────────────────────
-_prev_positions: dict = {}   # {symbol: {direction, entry_price, qty}}
+# IG : {deal_id: {epic, direction, entry_price, qty}} — Alpaca (legacy) : {epic: {direction, entry_price, qty}}
+_prev_positions: dict = {}
 _last_cycle_iso: str  = ""   # ISO timestamp of last cycle (for order lookup)
 
 # ── Pause / commandes Telegram ────────────────────────────────────
@@ -321,17 +324,34 @@ async def _apply_breakeven(
     epic: str,
     closed_deal_id: str,
     cache_entry: dict,
+    open_deal_ids: set,
 ) -> None:
-    """TP1 touché : remonte le SL des positions sœurs (même epic) encore ouvertes."""
+    """TP1 touché : remonte le SL des positions sœurs (même epic) encore ouvertes.
+
+    `open_deal_ids` doit être l'ensemble des deal_id réellement ouverts CE cycle
+    (ex. current_deal_ids) — sans ça, quand plusieurs paliers se ferment le même
+    cycle (time stop, ou prix qui traverse TP1→TP2→TP3 dans la même bougie), le
+    palier 1 (traité en premier) tenterait d'amender le SL de paliers 2/3 déjà
+    clôturés côté broker, ce qu'IG rejette (voir revue finale #3).
+    """
+    entry   = cache_entry.get("entry", 0.0)
+    atr_val = cache_entry.get("atr", 0.0)
+    if not entry or not atr_val:
+        logger.warning(
+            "Breakeven abandonné — cache_entry incomplet pour %s (deal_id=%s, entry=%s, atr=%s)",
+            epic, closed_deal_id, entry, atr_val,
+        )
+        return
+
     direction = cache_entry.get("direction", "BUY")
-    entry     = cache_entry.get("entry", 0.0)
-    atr_val   = cache_entry.get("atr", 0.0)
     sign      = 1 if direction == "BUY" else -1
     new_sl    = entry - sign * MR_BREAKEVEN_BUFFER_ATR * atr_val
 
     siblings = [
         (deal_id, entry_data) for deal_id, entry_data in _signal_cache.items()
-        if entry_data.get("epic") == epic and deal_id != closed_deal_id
+        if entry_data.get("epic") == epic
+        and deal_id != closed_deal_id
+        and deal_id in open_deal_ids
     ]
     if not siblings:
         return
@@ -339,7 +359,7 @@ async def _apply_breakeven(
     amended = False
     for deal_id, entry_data in siblings:
         try:
-            await broker.amend_stop(deal_id, new_sl)
+            await broker.amend_stop(deal_id, new_sl, tp=entry_data.get("tp"))
             entry_data["sl"] = new_sl
             amended = True
             logger.info(
@@ -396,7 +416,9 @@ async def handle_telegram_command(
             if positions:
                 lines.append(f"\n📈 <b>Positions ({len(positions)}) :</b>")
                 for idx, p in enumerate(positions, 1):
-                    cache_entry = _signal_cache.get(p["deal_id"])
+                    # deal_id-keyed sur IG, epic-keyé sur Alpaca (legacy) — au plus
+                    # un des deux .get() trouvera quelque chose (voir revue finale #2).
+                    cache_entry = _signal_cache.get(p["deal_id"]) or _signal_cache.get(p["epic"])
                     lines.append(_format_open_position(idx, p, cache_entry))
             else:
                 lines.append("\n📊 Aucune position ouverte")
@@ -610,6 +632,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             (deal_id, pos_data) for deal_id, pos_data in _prev_positions.items()
             if deal_id not in current_deal_ids
         ]
+        unmatched_deal_ids: list = []   # (deal_id, epic) — match() a échoué ce cycle
 
         if missing and _last_cycle_iso:
             epics_to_check = {pos_data["epic"] for _, pos_data in missing}
@@ -632,6 +655,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                         "Impossible d'apparier la clôture de %s (deal_id=%s) — ignoré ce cycle",
                         epic, deal_id,
                     )
+                    unmatched_deal_ids.append((deal_id, epic))
                     continue
                 candidates.remove(match)   # ne pas réutiliser la même transaction
 
@@ -671,12 +695,33 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
 
                     # ── Bascule breakeven : tier 1 fermé en profit ──
                     if pnl > 0 and tier == 1:
-                        await _apply_breakeven(broker, telegram, epic, deal_id, cache_entry)
+                        await _apply_breakeven(broker, telegram, epic, deal_id, cache_entry, current_deal_ids)
 
                     _signal_cache.pop(deal_id, None)
                     _save_state({"open_signal_cache": _signal_cache})
                 except Exception as e:
                     logger.warning("Could not process closed trade for %s (deal_id=%s): %s", epic, deal_id, e)
+
+        # ── Nettoyage des clôtures non appariées ────────────────────
+        # _prev_positions est reconstruit ci-dessous à partir de open_positions,
+        # qui ne contient plus ces deal_id. Contrairement à l'ancien cache
+        # keyé par epic (auto-écrasé par le prochain trade sur le même epic),
+        # une entrée keyée par deal_id ne sera plus jamais réécrite : elle
+        # fuirait indéfiniment dans _signal_cache/bot_state.json et deviendrait
+        # un faux "sibling" testé par _apply_breakeven à chaque clôture future
+        # sur cet epic (voir revue finale #4).
+        if unmatched_deal_ids:
+            removed_any = False
+            for deal_id, epic in unmatched_deal_ids:
+                if deal_id in _signal_cache:
+                    logger.warning(
+                        "Clôture non appariée abandonnée — %s (deal_id=%s) retiré du cache sans être journalisé",
+                        epic, deal_id,
+                    )
+                    _signal_cache.pop(deal_id, None)
+                    removed_any = True
+            if removed_any:
+                _save_state({"open_signal_cache": _signal_cache})
 
         # Update position tracking for next cycle
         _prev_positions = {
@@ -876,6 +921,14 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     signal, risk_amount, contract_size,
                     tp_atr_multipliers=(MR_TP1_ATR, MR_TP2_ATR, MR_TP3_ATR),
                 )
+                # build_scaled_orders() re-dérive qty à partir de risk_amount/sl_dist et
+                # ignore donc le plafonnement buying-power appliqué plus haut sur
+                # signal["qty"]. Sans ce clamp, un SL très serré peut produire des ordres
+                # dépassant largement le plafond de marge voulu (voir revue finale #1).
+                if orders:
+                    capped_per_tier = max(round(signal["qty"] / len(orders), 1), 0.1)
+                    for order in orders:
+                        order["qty"] = min(order["qty"], capped_per_tier)
                 any_failed = False
                 for order in orders:
                     try:

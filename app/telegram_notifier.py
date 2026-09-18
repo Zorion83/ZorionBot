@@ -223,7 +223,10 @@ class TelegramNotifier:
         if open_positions:
             lines.append(f"\n<b>Positions ouvertes ({len(open_positions)}) :</b>")
             for idx, pos in enumerate(open_positions, 1):
-                cache_entry = signal_cache.get(pos["deal_id"])
+                # deal_id-keyed sur IG, epic-keyé sur Alpaca (legacy) — au plus
+                # un des deux .get() trouvera quelque chose. Pas de BROKER visible
+                # ici (pas d'import config), donc ce fallback marche pour les deux.
+                cache_entry = signal_cache.get(pos["deal_id"]) or signal_cache.get(pos["epic"])
                 lines.append(_format_open_position(idx, pos, cache_entry))
         else:
             lines.append("Aucune position ouverte")

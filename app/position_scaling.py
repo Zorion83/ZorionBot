@@ -33,6 +33,10 @@ def build_scaled_orders(
 
     risk_per_tier = risk_amount / len(tp_atr_multipliers)
     qty = risk_per_tier / (sl_dist * contract_size)
+    # Plancher appliqué PAR PALIER (pas sur le total) : avec 3 paliers, le minimum
+    # de position TOTALE est passé de 0.1 à 0.3 contrat. À solde très faible ou ATR
+    # très large, ça peut faire dépasser le risque effectif au-delà du split voulu.
+    # Comportement accepté tel quel (voir plan) — documentation seulement.
     qty = max(round(qty, 1), 0.1)
 
     orders = []
