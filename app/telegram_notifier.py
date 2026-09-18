@@ -36,9 +36,11 @@ def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> s
     pnl_str   = f"{'+'if pnl > 0 else ''}{pnl:.2f} $"
     entry     = pos.get("entry_price", 0.0)
     current   = pos.get("current_price", 0.0)
+    tier      = cache_entry.get("tier") if cache_entry else None
+    tier_str  = f" (Position {tier}/3)" if tier else ""
 
     lines = [
-        f"<b>#{idx} {direction} {pos['epic']}</b>",
+        f"<b>#{idx} {direction} {pos['epic']}{tier_str}</b>",
         f"   Entrée  : {entry:.2f} → Actuel : {current:.2f}",
         f"   P&amp;L  : {pnl_str}",
     ]
@@ -174,8 +176,10 @@ class TelegramNotifier:
     async def send_signal(self, signal: dict, demo: bool) -> None:
         direction = "🚀 LONG" if signal["direction"] == "BUY" else "🔻 SHORT"
         mode_tag  = "[DEMO] " if demo else ""
+        tier      = signal.get("tier")
+        tier_str  = f" — Position {tier}/3" if tier else ""
         await self._send(
-            f"{direction} {mode_tag}<b>{signal['asset_name']}</b>\n"
+            f"{direction} {mode_tag}<b>{signal['asset_name']}</b>{tier_str}\n"
             f"Entry : {signal['entry_price']:.2f}\n"
             f"SL    : {signal['sl_price']:.2f}\n"
             f"TP    : {signal['tp_price']:.2f}\n"
@@ -183,15 +187,16 @@ class TelegramNotifier:
         )
 
     async def send_trade_closed(
-        self, symbol: str, direction: str, pnl: float, demo: bool
+        self, symbol: str, direction: str, pnl: float, demo: bool, tier: int = 0
     ) -> None:
         emoji         = "💰" if pnl >= 0 else "💸"
         result        = "WIN ✅" if pnl >= 0 else "LOSS ❌"
         direction_str = "LONG" if direction == "BUY" else "SHORT"
         mode_tag      = "[DEMO] " if demo else ""
         pnl_str       = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
+        tier_str      = f" — Position {tier}/3" if tier else ""
         await self._send(
-            f"{emoji} <b>Trade fermé {mode_tag}{symbol}</b>\n"
+            f"{emoji} <b>Trade fermé {mode_tag}{symbol}</b>{tier_str}\n"
             f"Direction : {direction_str}\n"
             f"P&amp;L    : {pnl_str}\n"
             f"Résultat  : <b>{result}</b>"
@@ -218,7 +223,7 @@ class TelegramNotifier:
         if open_positions:
             lines.append(f"\n<b>Positions ouvertes ({len(open_positions)}) :</b>")
             for idx, pos in enumerate(open_positions, 1):
-                cache_entry = signal_cache.get(pos["epic"])
+                cache_entry = signal_cache.get(pos["deal_id"])
                 lines.append(_format_open_position(idx, pos, cache_entry))
         else:
             lines.append("Aucune position ouverte")

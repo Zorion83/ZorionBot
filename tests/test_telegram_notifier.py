@@ -159,6 +159,24 @@ class TestFormatOpenPosition:
         assert "%" not in result  # no progress line
 
 
+def test_format_open_position_shows_tier_tag():
+    from telegram_notifier import _format_open_position
+    pos = {"epic": "CS.D.CFEGOLD.CEF.IP", "direction": "BUY",
+           "entry_price": 4350.0, "current_price": 4355.0, "unrealized_pl": 5.0}
+    cache_entry = {"sl": 4300.0, "tp": 4360.0, "tier": 2}
+    text = _format_open_position(1, pos, cache_entry)
+    assert "Position 2/3" in text
+
+
+def test_format_open_position_no_tag_without_tier():
+    from telegram_notifier import _format_open_position
+    pos = {"epic": "SPY", "direction": "BUY",
+           "entry_price": 500.0, "current_price": 501.0, "unrealized_pl": 1.0}
+    cache_entry = {"sl": 495.0, "tp": 510.0}   # pas de "tier" (chemin Alpaca legacy)
+    text = _format_open_position(1, pos, cache_entry)
+    assert "Position" not in text.split("SL")[0].split("\n")[0] or "/3" not in text
+
+
 class TestSendDailySummaryExtended:
     def test_closed_today_section_appears(self):
         """send_daily_summary doit afficher la section trades clôturés si non vide."""
@@ -198,10 +216,10 @@ class TestSendDailySummaryExtended:
         t._send = fake_send
 
         pos = {
-            "epic": "BTC/USD", "direction": "BUY",
+            "epic": "BTC/USD", "deal_id": "DEAL-1", "direction": "BUY",
             "entry_price": 83500.0, "current_price": 84200.0, "unrealized_pl": 210.5,
         }
         cache = {"sl": 81000.0, "tp": 88500.0, "direction": "BUY"}
-        asyncio.run(t.send_daily_summary(0, [pos], [], {"BTC/USD": cache}))
+        asyncio.run(t.send_daily_summary(0, [pos], [], {"DEAL-1": cache}))
         assert "#1" in captured[0]
         assert "81000" in captured[0]   # SL visible

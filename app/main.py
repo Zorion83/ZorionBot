@@ -351,7 +351,7 @@ async def handle_telegram_command(
             if positions:
                 lines.append(f"\n📈 <b>Positions ({len(positions)}) :</b>")
                 for idx, p in enumerate(positions, 1):
-                    cache_entry = _signal_cache.get(p["epic"])
+                    cache_entry = _signal_cache.get(p["deal_id"])
                     lines.append(_format_open_position(idx, p, cache_entry))
             else:
                 lines.append("\n📊 Aucune position ouverte")
@@ -414,11 +414,12 @@ async def handle_telegram_command(
                 "",
             ]
             for t in trades:
-                emoji  = "✅" if t["pnl"] >= 0 else "❌"
-                d_str  = "LONG " if t["direction"] == "BUY" else "SHORT"
-                pnl_s  = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
-                date_s = t["closed_at"][8:10] + "/" + t["closed_at"][5:7] + " " + t["closed_at"][11:16]
-                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']} | {pnl_s} | {date_s}")
+                emoji     = "✅" if t["pnl"] >= 0 else "❌"
+                d_str     = "LONG " if t["direction"] == "BUY" else "SHORT"
+                pnl_s     = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
+                date_s    = t["closed_at"][8:10] + "/" + t["closed_at"][5:7] + " " + t["closed_at"][11:16]
+                tier_tag  = f" T{t['tier']}" if t.get("tier") else ""
+                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']}{tier_tag} | {pnl_s} | {date_s}")
 
             text = "\n".join(lines)
             if len(text) > 4000:
