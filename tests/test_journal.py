@@ -76,6 +76,19 @@ class TestJournalAddTrade:
         assert journal["next_id"] == 3
         assert len(journal["trades"]) == 2
 
+    def test_trade_stores_tier(self, tmp_path):
+        import main as m
+        m._JOURNAL_FILE = str(tmp_path / "trade_journal.json")
+        journal = {"month": "2026-04", "next_id": 1, "trades": []}
+
+        m._add_to_journal(
+            journal, symbol="CS.D.CFEGOLD.CEF.IP", asset_name="GOLD", direction="BUY",
+            entry_price=4350.0, exit_price=4360.0, sl_price=4300.0, tp_price=4360.0,
+            qty=0.4, pnl=4.0, closed_at="2026-09-18T10:00:00Z", tier=1,
+        )
+
+        assert journal["trades"][0]["tier"] == 1
+
 
 class TestLoadJournal:
     def test_returns_fresh_journal_when_file_missing(self, tmp_path):

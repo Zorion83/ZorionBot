@@ -141,6 +141,7 @@ def _add_to_journal(
     qty: float,
     pnl: float,
     closed_at: str,
+    tier: int = 0,
 ) -> int:
     """Ajoute un trade clôturé au journal. Retourne l'ID assigné."""
     trade_id = journal["next_id"]
@@ -148,6 +149,7 @@ def _add_to_journal(
         "id":          trade_id,
         "symbol":      symbol,
         "asset_name":  asset_name,
+        "tier":        tier,
         "direction":   direction,
         "entry_price": round(entry_price, 4),
         "exit_price":  round(exit_price, 4),
@@ -311,6 +313,49 @@ def _match_closed_deal(direction: str, cache_entry: dict, candidates: list) -> d
         return min(refs) if refs else float("inf")
 
     return min(same_side, key=distance)
+
+
+async def _apply_breakeven(
+    broker: IGBroker,
+    telegram: TelegramNotifier,
+    epic: str,
+    closed_deal_id: str,
+    cache_entry: dict,
+) -> None:
+    """TP1 touché : remonte le SL des positions sœurs (même epic) encore ouvertes."""
+    direction = cache_entry.get("direction", "BUY")
+    entry     = cache_entry.get("entry", 0.0)
+    atr_val   = cache_entry.get("atr", 0.0)
+    sign      = 1 if direction == "BUY" else -1
+    new_sl    = entry - sign * MR_BREAKEVEN_BUFFER_ATR * atr_val
+
+    siblings = [
+        (deal_id, entry_data) for deal_id, entry_data in _signal_cache.items()
+        if entry_data.get("epic") == epic and deal_id != closed_deal_id
+    ]
+    if not siblings:
+        return
+
+    amended = False
+    for deal_id, entry_data in siblings:
+        try:
+            await broker.amend_stop(deal_id, new_sl)
+            entry_data["sl"] = new_sl
+            amended = True
+            logger.info(
+                "Breakeven appliqué — deal_id=%s (tier %s) → SL=%.2f",
+                deal_id, entry_data.get("tier"), new_sl,
+            )
+        except BrokerError as e:
+            logger.error("Échec amend_stop breakeven deal_id=%s: %s", deal_id, e)
+            await telegram.send_error(f"Breakeven {epic}", str(e))
+
+    if amended:
+        _save_state({"open_signal_cache": _signal_cache})
+        await telegram._send(
+            f"🔒 <b>{epic}</b> — TP1 touché, SL des positions restantes remonté "
+            f"au breakeven ({new_sl:.2f})"
+        )
 
 
 async def handle_telegram_command(
@@ -551,56 +596,84 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     logger.error("Erreur time stop %s: %s", epic, e)
                     await telegram.send_error(f"Time stop {epic}", str(e))
 
-    # ── Detect closed positions ───────────────────────────────────
-    current_epics = set(open_epics)
-    for symbol, pos_data in list(_prev_positions.items()):
-        if symbol not in current_epics and _last_cycle_iso:
-            try:
-                closed_orders = await broker.get_closed_orders_since(symbol, _last_cycle_iso)
-                closing_side  = "sell" if pos_data["direction"] == "BUY" else "buy"
-                closing_fill  = next(
-                    (o for o in closed_orders if o["side"] == closing_side), None
-                )
-                if closing_fill:
-                    exit_price  = closing_fill["filled_avg_price"]
-                    entry_price = pos_data["entry_price"]
-                    qty         = pos_data["qty"]
-                    if closing_fill.get("pnl") is not None:
-                        # IG fournit le P&L exact (tient compte de la taille de contrat)
-                        pnl = closing_fill["pnl"]
-                    elif pos_data["direction"] == "BUY":
-                        pnl = (exit_price - entry_price) * qty
-                    else:
-                        pnl = (entry_price - exit_price) * qty
-                    logger.info(
-                        "Trade closed — %s %s | entry=%.2f exit=%.2f P&L=%.2f",
-                        pos_data["direction"], symbol, entry_price, exit_price, pnl
-                    )
-                    await telegram.send_trade_closed(symbol, pos_data["direction"], pnl, DEMO_MODE)
+    # ── Detect closed positions (par deal_id — plusieurs positions possibles par epic) ──
+    current_deal_ids = {p["deal_id"] for p in open_positions}
+    missing = [
+        (deal_id, pos_data) for deal_id, pos_data in _prev_positions.items()
+        if deal_id not in current_deal_ids
+    ]
 
-                    # ── Enregistrer dans le journal mensuel ───────
-                    cache_entry = _signal_cache.pop(symbol, {})
-                    _add_to_journal(
-                        _journal,
-                        symbol      = symbol,
-                        asset_name  = cache_entry.get("asset_name", symbol),
-                        direction   = pos_data["direction"],
-                        entry_price = entry_price,
-                        exit_price  = exit_price,
-                        sl_price    = cache_entry.get("sl", 0.0),
-                        tp_price    = cache_entry.get("tp", 0.0),
-                        qty         = qty,
-                        pnl         = pnl,
-                        closed_at   = now.isoformat(),
-                    )
-                    _save_journal(_journal)
-                    _save_state({"open_signal_cache": _signal_cache})
+    if missing and _last_cycle_iso:
+        epics_to_check = {pos_data["epic"] for _, pos_data in missing}
+        closed_by_epic = {
+            epic: await broker.get_closed_orders_since(epic, _last_cycle_iso)
+            for epic in epics_to_check
+        }
+
+        # Tier 1 en premier : son TP est le plus facile à distinguer sans ambiguïté.
+        missing.sort(key=lambda item: _signal_cache.get(item[0], {}).get("tier", 99))
+
+        for deal_id, pos_data in missing:
+            epic         = pos_data["epic"]
+            cache_entry  = _signal_cache.get(deal_id, {})
+            candidates   = closed_by_epic.get(epic, [])
+            match        = _match_closed_deal(pos_data["direction"], cache_entry, candidates)
+
+            if match is None:
+                logger.warning(
+                    "Impossible d'apparier la clôture de %s (deal_id=%s) — ignoré ce cycle",
+                    epic, deal_id,
+                )
+                continue
+            candidates.remove(match)   # ne pas réutiliser la même transaction
+
+            try:
+                exit_price  = match["filled_avg_price"]
+                entry_price = pos_data["entry_price"]
+                qty         = pos_data["qty"]
+                if match.get("pnl") is not None:
+                    pnl = match["pnl"]
+                elif pos_data["direction"] == "BUY":
+                    pnl = (exit_price - entry_price) * qty
+                else:
+                    pnl = (entry_price - exit_price) * qty
+
+                tier = cache_entry.get("tier", 0)
+                logger.info(
+                    "Trade closed — %s %s (tier %s) | entry=%.2f exit=%.2f P&L=%.2f",
+                    pos_data["direction"], epic, tier, entry_price, exit_price, pnl,
+                )
+                await telegram.send_trade_closed(epic, pos_data["direction"], pnl, DEMO_MODE, tier=tier)
+
+                _add_to_journal(
+                    _journal,
+                    symbol      = epic,
+                    asset_name  = cache_entry.get("asset_name", epic),
+                    direction   = pos_data["direction"],
+                    entry_price = entry_price,
+                    exit_price  = exit_price,
+                    sl_price    = cache_entry.get("sl", 0.0),
+                    tp_price    = cache_entry.get("tp", 0.0),
+                    qty         = qty,
+                    pnl         = pnl,
+                    closed_at   = now.isoformat(),
+                    tier        = tier,
+                )
+                _save_journal(_journal)
+
+                # ── Bascule breakeven : tier 1 fermé en profit ──
+                if pnl > 0 and tier == 1:
+                    await _apply_breakeven(broker, telegram, epic, deal_id, cache_entry)
+
+                _signal_cache.pop(deal_id, None)
+                _save_state({"open_signal_cache": _signal_cache})
             except Exception as e:
-                logger.warning("Could not process closed trade for %s: %s", symbol, e)
+                logger.warning("Could not process closed trade for %s (deal_id=%s): %s", epic, deal_id, e)
 
     # Update position tracking for next cycle
     _prev_positions = {
-        p["epic"]: {
+        p["deal_id"]: {
+            "epic":        p["epic"],
             "direction":   p["direction"],
             "entry_price": p.get("entry_price", 0),
             "qty":         p["size"],
