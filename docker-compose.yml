@@ -9,8 +9,10 @@ services:
       - /srv/data/donchianbot-v2:/app/data
     environment:
       - DATA_DIR=/app/data
-      - MR_TP_ATR=1.0
       - MR_TIME_STOP=48
+      # MR_TP_ATR (ancien TP unique) retiré : plus utilisé côté IG depuis le
+      # scaling en 3 paliers (MR_TP1_ATR/MR_TP2_ATR/MR_TP3_ATR, défauts
+      # 1.0/2.0/3.0 dans config.py — override ici si besoin de les changer).
     logging:
       driver: "json-file"
       options:
