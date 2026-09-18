@@ -285,6 +285,32 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
     return _candle_cache.get(epic, [])
 
 
+def _match_closed_deal(direction: str, cache_entry: dict, candidates: list) -> dict | None:
+    """
+    Trouve, parmi `candidates` (sortie de get_closed_orders_since), la transaction
+    qui correspond le mieux à une position disparue de get_open_positions(), en
+    comparant le prix de clôture au TP/SL mis en cache pour CE deal_id précis.
+
+    Chaque palier (tier) a un TP distinct, donc identification fiable pour repérer
+    lequel a touché son TP. Cas dégénéré accepté : si 2 positions se ferment ensemble
+    sur le même SL, la fonction retourne l'une des deux candidates équidistantes —
+    sans impact financier réel puisqu'elles partagent taille/entry/SL (voir spec).
+    """
+    closing_side = "sell" if direction == "BUY" else "buy"
+    same_side = [c for c in candidates if c["side"] == closing_side]
+    if not same_side:
+        return None
+
+    tp, sl = cache_entry.get("tp", 0.0), cache_entry.get("sl", 0.0)
+
+    def distance(c: dict) -> float:
+        level = c["filled_avg_price"]
+        refs = [abs(level - ref) for ref in (tp, sl) if ref]
+        return min(refs) if refs else float("inf")
+
+    return min(same_side, key=distance)
+
+
 async def handle_telegram_command(
     command: str,
     args: list,
