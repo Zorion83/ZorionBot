@@ -200,11 +200,11 @@ class IGBroker(BaseBroker):
             })
         return positions
 
-    async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
-        await self._place_order(symbol, size, "BUY", sl, tp, **kwargs)
+    async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> str:
+        return await self._place_order(symbol, size, "BUY", sl, tp, **kwargs)
 
-    async def open_short(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
-        await self._place_order(symbol, size, "SELL", sl, tp, **kwargs)
+    async def open_short(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> str:
+        return await self._place_order(symbol, size, "SELL", sl, tp, **kwargs)
 
     async def _place_order(
         self,
@@ -216,7 +216,7 @@ class IGBroker(BaseBroker):
         comment:       str = "",
         currency_code: str = "USD",
         **kwargs,
-    ) -> None:
+    ) -> str:
         payload = {
             "epic":           symbol,
             "expiry":         "-",
@@ -233,15 +233,15 @@ class IGBroker(BaseBroker):
         resp = await self._request("POST", "/positions/otc", version="2", json_body=payload)
         deal_ref = resp.json().get("dealReference", "?")
         logger.info("%s order on %s placed — dealRef: %s", direction, symbol, deal_ref)
-        await self._confirm(deal_ref, direction, symbol)
+        return await self._confirm(deal_ref, direction, symbol)
 
-    async def _confirm(self, deal_ref: str, direction: str, symbol: str) -> None:
-        """Vérifie l'acceptation du deal via /confirms."""
+    async def _confirm(self, deal_ref: str, direction: str, symbol: str) -> str:
+        """Vérifie l'acceptation du deal via /confirms. Retourne le dealId confirmé."""
         try:
             resp = await self._request("GET", f"/confirms/{deal_ref}", version="1")
         except BrokerError as e:
             logger.warning("Could not confirm dealRef %s: %s", deal_ref, e)
-            return
+            return ""
         confirm     = resp.json()
         deal_status = confirm.get("dealStatus", "UNKNOWN")
         if deal_status != "ACCEPTED":
@@ -249,15 +249,19 @@ class IGBroker(BaseBroker):
             raise BrokerError(
                 f"{direction} on {symbol} not accepted: {deal_status} — {reason}"
             )
-        logger.info("%s on %s confirmed — dealId: %s",
-                    direction, symbol, confirm.get("dealId", "?"))
+        deal_id = confirm.get("dealId", "")
+        logger.info("%s on %s confirmed — dealId: %s", direction, symbol, deal_id)
+        return deal_id
 
-    async def close_position(self, symbol: str) -> None:
-        """Clôture totale au marché de la position sur `symbol` (utilisé par le time stop)."""
+    async def close_position(self, symbol: str, deal_id: str = None) -> None:
+        """Clôture totale au marché — cible `deal_id` si fourni, sinon la 1ère position sur `symbol`."""
         positions = await self.get_open_positions()
-        pos = next((p for p in positions if p["epic"] == symbol), None)
+        if deal_id:
+            pos = next((p for p in positions if p["deal_id"] == deal_id), None)
+        else:
+            pos = next((p for p in positions if p["epic"] == symbol), None)
         if not pos:
-            logger.info("close_position %s: aucune position ouverte", symbol)
+            logger.info("close_position %s (deal_id=%s): aucune position ouverte", symbol, deal_id)
             return
         payload = {
             "dealId":      pos["deal_id"],
@@ -272,8 +276,14 @@ class IGBroker(BaseBroker):
             json_body=payload, extra_headers={"_method": "DELETE"},
         )
         deal_ref = resp.json().get("dealReference", "?")
-        logger.info("Close %s placed — dealRef: %s", symbol, deal_ref)
+        logger.info("Close %s (deal_id=%s) placed — dealRef: %s", symbol, pos["deal_id"], deal_ref)
         await self._confirm(deal_ref, "CLOSE", symbol)
+
+    async def amend_stop(self, deal_id: str, new_sl: float) -> None:
+        """Déplace le SL d'une position déjà ouverte (breakeven) sans la fermer."""
+        payload = {"stopLevel": str(round(new_sl, 2))}
+        await self._request("PUT", f"/positions/otc/{deal_id}", version="2", json_body=payload)
+        logger.info("SL amendé — deal_id=%s → %.2f", deal_id, new_sl)
 
     async def get_closed_orders_since(self, symbol: str, after_iso: str) -> List[dict]:
         """

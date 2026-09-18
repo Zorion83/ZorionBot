@@ -244,17 +244,19 @@ class AlpacaBroker(BaseBroker):
             logger.warning("_get_latest_price(%s) failed: %s", symbol, e)
             return 0.0
 
-    async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
-        await self._place_order(symbol, size, "buy", sl, tp)
+    async def open_long(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> str:
+        return await self._place_order(symbol, size, "buy", sl, tp)
 
-    async def open_short(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> None:
-        await self._place_order(symbol, size, "sell", sl, tp)
+    async def open_short(self, symbol: str, size: float, sl: float, tp: float, **kwargs) -> str:
+        return await self._place_order(symbol, size, "sell", sl, tp)
 
-    async def close_position(self, symbol: str) -> None:
+    async def close_position(self, symbol: str, deal_id: str = None) -> None:
         """
         Liquidate the entire open position for a symbol at market price.
-        Used for crypto positions where SL/TP are managed by the bot's main loop
-        (Alpaca does not support bracket orders for crypto).
+        `deal_id` is accepted for interface compatibility but unused — Alpaca's
+        DELETE /v2/positions/{symbol} always liquidates the whole position on
+        that symbol (this project never opens more than one Alpaca position
+        per symbol).
         """
         # Alpaca's /v2/positions endpoint returns crypto symbols without the
         # slash (e.g. "BTCUSD"), and DELETE expects that same bare form —
@@ -274,6 +276,11 @@ class AlpacaBroker(BaseBroker):
             raise BrokerError(f"Network error closing position {symbol}: {e}") from e
         logger.info("Position %s liquidated via DELETE /v2/positions", symbol)
 
+    async def amend_stop(self, deal_id: str, new_sl: float) -> None:
+        raise BrokerError(
+            "amend_stop non supporté par AlpacaBroker — non utilisé par la stratégie legacy"
+        )
+
     async def _place_order(
         self,
         symbol: str,
@@ -281,7 +288,7 @@ class AlpacaBroker(BaseBroker):
         side:   str,
         sl:     float,
         tp:     float,
-    ) -> None:
+    ) -> str:
         is_crypto = "/" in symbol
 
         if is_crypto:
@@ -321,7 +328,7 @@ class AlpacaBroker(BaseBroker):
                 "%s (crypto) order on %s placed — orderId: %s | SL=%.2f TP=%.2f [bot-managed]",
                 side, symbol, order_id, sl, tp,
             )
-            return
+            return order_id
 
         # ── Stock path ────────────────────────────────────────────────
         # Alpaca Paper Trading rejects bracket orders (GTC or otherwise) with
@@ -361,3 +368,4 @@ class AlpacaBroker(BaseBroker):
             "%s (stock) order on %s placed — orderId: %s | SL=%.2f TP=%.2f [bot-managed]",
             side, symbol, order_id, sl, tp,
         )
+        return order_id
