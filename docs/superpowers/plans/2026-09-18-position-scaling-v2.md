@@ -1237,7 +1237,9 @@ git commit -m "feat: match closures by deal_id/price, tag journal with tier, tri
 - Modify: `app/main.py`
 
 **Interfaces:**
-- Consumes: `_signal_cache` désormais indexé par `deal_id` (Task 5), `broker.close_position(symbol, deal_id=...)` (Task 3).
+- Consumes: `_signal_cache` désormais indexé par `deal_id` pour le chemin IG, toujours par `epic` pour le chemin Alpaca legacy (Task 5 + le correctif de la Task 7), `broker.close_position(symbol, deal_id=...)` (Task 3).
+
+> **Piège déjà rencontré à la Task 7, à ne pas reproduire ici :** le bloc visé par le Step 1 (`# ── TP/SL monitoring (tous actifs) ───`) n'est **pas** filtré par `if BROKER == "ig":` — il s'applique à **toutes** les positions ouvertes, IG et Alpaca confondues (le commentaire "tous actifs" est littéral). Pour Alpaca, c'est même l'unique mécanisme qui fait respecter le TP/SL (Alpaca n'attache pas de stop natif, contrairement à IG). `_signal_cache` reste indexé par `epic` pour Alpaca (jamais migré vers `deal_id`) — un remplacement inconditionnel de la clé de lookup casserait silencieusement le TP/SL manuel d'Alpaca exactement comme le bug déjà corrigé à la Task 7. Le Step 1 ci-dessous branche donc explicitly par `BROKER`, contrairement au Step 2 dont le bloc est déjà nativement sous un `if BROKER == "ig":` englobant (donc sûr sans branchement supplémentaire).
 
 - [ ] **Step 1: Mettre à jour la boucle de monitoring TP/SL manuel**
 
@@ -1253,9 +1255,10 @@ par :
 
 ```python
     for pos in open_positions:
-        epic = pos["epic"]
-        deal_id = pos["deal_id"]
-        cache = _signal_cache.get(deal_id)
+        epic      = pos["epic"]
+        deal_id   = pos["deal_id"]
+        cache_key = deal_id if BROKER == "ig" else epic
+        cache     = _signal_cache.get(cache_key)
 ```
 
 Et plus loin dans le même bloc, remplacer :
@@ -1269,7 +1272,10 @@ par :
 
 ```python
             try:
-                await broker.close_position(epic, deal_id=deal_id)
+                if BROKER == "ig":
+                    await broker.close_position(epic, deal_id=deal_id)
+                else:
+                    await broker.close_position(epic)
 ```
 
 - [ ] **Step 2: Mettre à jour la boucle de time stop**
