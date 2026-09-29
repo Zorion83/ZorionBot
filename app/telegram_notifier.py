@@ -22,7 +22,7 @@ TELEGRAM_UPDATES = "https://api.telegram.org/bot{token}/getUpdates"
 
 # Convention forex pour l'or : 1 pip = 0.10 $ de cours (seul actif tradé, Spot Gold $1).
 PIP_SIZE     = 0.10
-PIP_REMINDER = f"ℹ️ 1 pip = {PIP_SIZE:.2f} $ de cours · valeur = lot × {PIP_SIZE:.2f} $/pip"
+PIP_REMINDER = f"ℹ️ 1 pip = {PIP_SIZE:.2f} $ de cours · valeur = lot × {PIP_SIZE:.2f} $ par pip"
 
 
 def _points(entry: float, level: float, direction: str) -> float:
@@ -72,7 +72,7 @@ def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> s
         f"   P&amp;L  : {pnl_str} ({_fmt_points(pts)})",
     ]
     if qty:
-        lines.append(f"   Lot     : {qty:g}  ({qty * PIP_SIZE:.2f} $/pip)")
+        lines.append(f"   Lot     : {qty:g}  ({qty * PIP_SIZE:.2f} $ par pip)")
 
     if cache_entry:
         sl = cache_entry.get("sl", 0.0)
@@ -231,7 +231,7 @@ class TelegramNotifier:
             f"Entrée : {entry:.2f}\n"
             f"SL     : {signal['sl_price']:.2f}  ({_fmt_points(sl_pts, qty, point_value)})\n"
             f"TP     : {signal['tp_price']:.2f}  ({_fmt_points(tp_pts, qty, point_value)})\n"
-            f"Lot    : {qty:g}  ({qty * point_value * PIP_SIZE:.2f} $/pip)\n"
+            f"Lot    : {qty:g}  ({qty * point_value * PIP_SIZE:.2f} $ par pip)\n"
             f"{PIP_REMINDER}"
         )
 
@@ -258,7 +258,7 @@ class TelegramNotifier:
         if sl and tp:
             lines.append(f"SL / TP   : {sl:.2f} / {tp:.2f}")
         if qty:
-            lines.append(f"Lot       : {qty:g}  ({qty * PIP_SIZE:.2f} $/pip)")
+            lines.append(f"Lot       : {qty:g}  ({qty * PIP_SIZE:.2f} $ par pip)")
         lines += [
             f"P&amp;L    : {pnl_str}",
             f"Résultat  : <b>{result}</b>",

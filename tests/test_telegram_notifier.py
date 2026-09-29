@@ -202,7 +202,8 @@ class TestTradeNumbering:
         assert "+109.8 pips" in text         # TP : 10.98 $ de cours en faveur du trade
         assert "-576.45 $" in text           # 549 pips x 10.5 lots x 0.10 $/pip
         assert "10.5" in text
-        assert "1.05 $/pip" in text          # valeur d'un pip pour ce lot
+        assert "1.05 $ par pip" in text       # valeur d'un pip pour ce lot
+        assert "/pip" not in text            # Telegram en ferait une commande cliquable
         assert "1 pip = 0.10" in text        # rappel de la conversion
 
     def test_signal_without_trade_no_still_works(self):
