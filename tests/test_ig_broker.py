@@ -101,6 +101,20 @@ class TestConfirmRetry:
         assert deal_id == "DEAL1"
         assert calls["confirms"] == 2
 
+    def test_records_fill_level_from_confirm(self, monkeypatch):
+        self._no_delay(monkeypatch)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/positions/otc"):
+                return httpx.Response(200, json={"dealReference": "REF5"})
+            return httpx.Response(200, json={"dealStatus": "ACCEPTED", "dealId": "DEAL5",
+                                             "level": 4171.09})
+
+        broker = _make_broker_with_transport(handler)
+        asyncio.run(broker.open_short("CS.D.CFEGOLD.CEF.IP", 1, 2.0, 0.5))
+
+        assert broker.last_fill_level == 4171.09
+
     def test_falls_back_to_positions_when_confirm_keeps_failing(self, monkeypatch):
         self._no_delay(monkeypatch)
         calls = {"confirms": 0}
@@ -120,6 +134,7 @@ class TestConfirmRetry:
 
         assert deal_id == "DEAL2"
         assert calls["confirms"] == 3
+        assert broker.last_fill_level == 1.0     # "level" de la position IG
 
     def test_returns_empty_when_deal_not_found_anywhere(self, monkeypatch):
         self._no_delay(monkeypatch)

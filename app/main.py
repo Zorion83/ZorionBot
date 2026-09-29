@@ -1029,6 +1029,14 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
 
                         signals_found += 1
                         trade_no = _allocate_trade_no()
+                        # Prix réellement exécuté par IG (le signal part de la clôture de
+                        # bougie) : c'est lui que le journal retient déjà via /positions.
+                        fill = getattr(broker, "last_fill_level", None) or order["entry_price"]
+                        if fill != order["entry_price"]:
+                            logger.info("Trade #%s : signal %.2f → exécuté %.2f (écart %+.2f)",
+                                        trade_no, order["entry_price"], fill,
+                                        fill - order["entry_price"])
+                        order = {**order, "entry_price": fill}
                         _signal_cache[deal_id] = {
                             "trade_no":   trade_no,
                             "epic":       epic,

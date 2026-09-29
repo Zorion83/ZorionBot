@@ -38,6 +38,7 @@ class IGBroker(BaseBroker):
         self._cst        = ""
         self._token      = ""
         self._client     = httpx.AsyncClient(timeout=30.0)
+        self.last_fill_level: float | None = None
 
     async def __aenter__(self):
         await self.connect()
@@ -248,6 +249,7 @@ class IGBroker(BaseBroker):
         exécuté : on retente, puis on retrouve le deal dans /positions par son
         dealReference. Sans ça, main.py perd SL/TP/tier du trade (19/08, 25/09, 29/09).
         """
+        self.last_fill_level = None   # prix d'exécution réel IG du dernier ordre confirmé
         resp = None
         for attempt, delay in enumerate((0,) + tuple(CONFIRM_RETRY_DELAYS), start=1):
             if delay:
@@ -270,7 +272,9 @@ class IGBroker(BaseBroker):
                 f"{direction} on {symbol} not accepted: {deal_status} — {reason}"
             )
         deal_id = confirm.get("dealId", "")
-        logger.info("%s on %s confirmed — dealId: %s", direction, symbol, deal_id)
+        self.last_fill_level = float(confirm["level"]) if confirm.get("level") else None
+        logger.info("%s on %s confirmed — dealId: %s | fill: %s",
+                    direction, symbol, deal_id, self.last_fill_level)
         return deal_id
 
     async def _find_deal_id_by_ref(self, deal_ref: str, direction: str, symbol: str) -> str:
@@ -284,6 +288,8 @@ class IGBroker(BaseBroker):
             position = pos.get("position", {})
             if position.get("dealReference") == deal_ref:
                 deal_id = position.get("dealId", "")
+                level   = position.get("level")
+                self.last_fill_level = float(level) if level else None
                 logger.info("%s on %s retrouvé via /positions — dealId: %s",
                             direction, symbol, deal_id)
                 return deal_id
