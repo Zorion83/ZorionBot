@@ -20,30 +20,50 @@ TELEGRAM_API     = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_UPDATES = "https://api.telegram.org/bot{token}/getUpdates"
 
 
+def _points(entry: float, level: float, direction: str) -> float:
+    """Écart en points (1 point = 1 unité de cours), signé du point de vue du trade."""
+    return (level - entry) if direction == "BUY" else (entry - level)
+
+
+def _fmt_points(pts: float, qty: Optional[float] = None, point_value: float = 1.0) -> str:
+    """'+10.98 pts' ou '+10.98 pts · +115.29 $' si la taille est connue."""
+    text = f"{pts:+.2f} pts"
+    if qty:
+        text += f" · {pts * qty * point_value:+.2f} $"
+    return text
+
+
 def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> str:
     """
     Formate une position ouverte avec numéro, SL/TP et barre de progression.
 
     Args:
-        idx:         Numéro d'affichage (1, 2, 3…)
+        idx:         Numéro d'affichage (1, 2, 3…), remplacé par le numéro de trade s'il existe
         pos:         Dict retourné par get_open_positions() —
-                     clés : epic, direction, entry_price, current_price, unrealized_pl
-        cache_entry: Dict depuis _signal_cache — clés : sl, tp, direction
+                     clés : epic, direction, entry_price, current_price, size, unrealized_pl
+        cache_entry: Dict depuis _signal_cache — clés : sl, tp, direction, qty, trade_no
                      None si la position a été ouverte avant la mise à jour du bot.
     """
     direction = "🚀 LONG" if pos["direction"] == "BUY" else "🔻 SHORT"
-    pnl       = pos.get("unrealized_pl", 0.0)
-    pnl_str   = f"{'+'if pnl > 0 else ''}{pnl:.2f} $"
     entry     = pos.get("entry_price", 0.0)
     current   = pos.get("current_price", 0.0)
+    qty       = pos.get("size") or (cache_entry or {}).get("qty")
+    pts       = _points(entry, current, pos["direction"])
+    # IG ne renvoie pas de P&L latent dans /positions : on le recalcule (1 $/point/contrat).
+    pnl       = pos["unrealized_pl"] if "unrealized_pl" in pos else pts * (qty or 0.0)
+    pnl_str   = f"{'+'if pnl > 0 else ''}{pnl:.2f} $"
     tier      = cache_entry.get("tier") if cache_entry else None
-    tier_str  = f" (Position {tier}/3)" if tier else ""
+    tier_str  = f" (Position {tier}/3)" if tier and tier > 1 else ""
+    number    = (cache_entry or {}).get("trade_no") or idx
+    name      = (cache_entry or {}).get("asset_name") or pos["epic"]
 
     lines = [
-        f"<b>#{idx} {direction} {pos['epic']}{tier_str}</b>",
+        f"<b>#{number} {direction} {name}{tier_str}</b>",
         f"   Entrée  : {entry:.2f} → Actuel : {current:.2f}",
-        f"   P&amp;L  : {pnl_str}",
+        f"   P&amp;L  : {pnl_str} ({pts:+.2f} pts)",
     ]
+    if qty:
+        lines.append(f"   Lot     : {qty:g}")
 
     if cache_entry:
         sl = cache_entry.get("sl", 0.0)
@@ -66,11 +86,12 @@ def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> s
 
 class TelegramNotifier:
 
-    def __init__(self, token: str, chat_id: str):
-        self._token   = token
-        self._chat_id = chat_id
-        self._enabled = bool(token and chat_id)
-        self._client  = httpx.AsyncClient(timeout=10.0)
+    def __init__(self, token: str, chat_id: str, thread_id: Optional[int] = None):
+        self._token     = token
+        self._chat_id   = chat_id
+        self._thread_id = thread_id
+        self._enabled   = bool(token and chat_id)
+        self._client    = httpx.AsyncClient(timeout=10.0)
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -82,12 +103,15 @@ class TelegramNotifier:
             logger.debug("Telegram désactivé (token/chat_id manquants)")
             return
         url = TELEGRAM_API.format(token=self._token)
+        payload = {
+            "chat_id":    self._chat_id,
+            "text":       text,
+            "parse_mode": "HTML",
+        }
+        if self._thread_id:
+            payload["message_thread_id"] = self._thread_id
         try:
-            await self._client.post(url, json={
-                "chat_id":    self._chat_id,
-                "text":       text,
-                "parse_mode": "HTML",
-            })
+            await self._client.post(url, json=payload)
         except Exception as e:
             logger.warning("Telegram send failed: %s", e)
 
@@ -136,9 +160,10 @@ class TelegramNotifier:
 
             for update in data.get("result", []):
                 offset  = update["update_id"] + 1
-                msg     = update.get("message", {})
-                text    = msg.get("text", "")
-                chat_id = str(msg.get("chat", {}).get("id", ""))
+                msg       = update.get("message", {})
+                text      = msg.get("text", "")
+                chat_id   = str(msg.get("chat", {}).get("id", ""))
+                thread_id = msg.get("message_thread_id")
 
                 # Sécurité : n'accepter que les messages du chat configuré
                 if chat_id != self._chat_id:
@@ -149,6 +174,12 @@ class TelegramNotifier:
                 parts   = text.split()
                 command = parts[0].lower().split("@")[0]   # gère /cmd@botname
                 args    = parts[1:]
+
+                # Si un topic dédié est configuré, ignorer les commandes tapées
+                # ailleurs dans le groupe (ex: éviter que Raspi_algo02 réponde à
+                # une commande tapée dans le topic La Verticale).
+                if self._thread_id and thread_id and thread_id != self._thread_id:
+                    continue
 
                 logger.info("Commande Telegram reçue : %s %s", command, args)
                 try:
@@ -173,34 +204,56 @@ class TelegramNotifier:
             f"Actifs : {assets_str}"
         )
 
-    async def send_signal(self, signal: dict, demo: bool) -> None:
+    async def send_signal(
+        self, signal: dict, demo: bool, trade_no: Optional[int] = None,
+        point_value: float = 1.0,
+    ) -> None:
         direction = "🚀 LONG" if signal["direction"] == "BUY" else "🔻 SHORT"
         mode_tag  = "[DEMO] " if demo else ""
         tier      = signal.get("tier")
-        tier_str  = f" — Position {tier}/3" if tier else ""
+        tier_str  = f" — Position {tier}/3" if tier and tier > 1 else ""
+        no_str    = f"Trade #{trade_no} · " if trade_no else ""
+        entry     = signal["entry_price"]
+        qty       = signal["qty"]
+        sl_pts    = _points(entry, signal["sl_price"], signal["direction"])
+        tp_pts    = _points(entry, signal["tp_price"], signal["direction"])
         await self._send(
-            f"{direction} {mode_tag}<b>{signal['asset_name']}</b>{tier_str}\n"
-            f"Entry : {signal['entry_price']:.2f}\n"
-            f"SL    : {signal['sl_price']:.2f}\n"
-            f"TP    : {signal['tp_price']:.2f}\n"
-            f"Qté   : {signal['qty']:.4f}"
+            f"{direction} {mode_tag}<b>{no_str}{signal['asset_name']}</b>{tier_str}\n"
+            f"Entrée : {entry:.2f}\n"
+            f"SL     : {signal['sl_price']:.2f}  ({_fmt_points(sl_pts, qty, point_value)})\n"
+            f"TP     : {signal['tp_price']:.2f}  ({_fmt_points(tp_pts, qty, point_value)})\n"
+            f"Lot    : {qty:g}  ({qty * point_value:.2f} $/pt)"
         )
 
     async def send_trade_closed(
-        self, symbol: str, direction: str, pnl: float, demo: bool, tier: int = 0
+        self, symbol: str, direction: str, pnl: float, demo: bool, tier: int = 0,
+        trade_no: Optional[int] = None, entry: Optional[float] = None,
+        exit_price: Optional[float] = None, sl: Optional[float] = None,
+        tp: Optional[float] = None, qty: Optional[float] = None,
     ) -> None:
         emoji         = "💰" if pnl >= 0 else "💸"
         result        = "WIN ✅" if pnl >= 0 else "LOSS ❌"
         direction_str = "LONG" if direction == "BUY" else "SHORT"
         mode_tag      = "[DEMO] " if demo else ""
         pnl_str       = f"{'+'if pnl >= 0 else ''}{pnl:.2f} $"
-        tier_str      = f" — Position {tier}/3" if tier else ""
-        await self._send(
-            f"{emoji} <b>Trade fermé {mode_tag}{symbol}</b>{tier_str}\n"
-            f"Direction : {direction_str}\n"
-            f"P&amp;L    : {pnl_str}\n"
-            f"Résultat  : <b>{result}</b>"
-        )
+        tier_str      = f" — Position {tier}/3" if tier and tier > 1 else ""
+        no_str        = f"#{trade_no} " if trade_no else ""
+        lines = [
+            f"{emoji} <b>Trade {no_str}fermé {mode_tag}{symbol}</b>{tier_str}",
+            f"Direction : {direction_str}",
+        ]
+        if entry and exit_price:
+            pts = _points(entry, exit_price, direction)
+            lines.append(f"Entrée    : {entry:.2f} → Sortie : {exit_price:.2f}  ({pts:+.2f} pts)")
+        if sl and tp:
+            lines.append(f"SL / TP   : {sl:.2f} / {tp:.2f}")
+        if qty:
+            lines.append(f"Lot       : {qty:g}")
+        lines += [
+            f"P&amp;L    : {pnl_str}",
+            f"Résultat  : <b>{result}</b>",
+        ]
+        await self._send("\n".join(lines))
 
     async def send_error(self, context: str, message: str) -> None:
         await self._send(f"❌ <b>Erreur — {context}</b>\n{message}")
@@ -238,6 +291,7 @@ class TelegramNotifier:
                 d_str  = "LONG" if t["direction"] == "BUY" else "SHORT"
                 pnl_s  = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
                 time_s = t["closed_at"][11:16]
-                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']} | {pnl_s} | {time_s}")
+                number = t.get("trade_no") or t["id"]
+                lines.append(f"#{number} {emoji} {d_str} {t['symbol']} | {pnl_s} | {time_s}")
 
         await self._send("\n".join(lines))

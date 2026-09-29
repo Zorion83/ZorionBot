@@ -15,12 +15,12 @@ from datetime import datetime, timezone
 from config import (
     BROKER, ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE,
     IG_API_KEY, IG_IDENTIFIER, IG_PASSWORD,
-    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_THREAD_ID,
     RISK_PCT, DONCHIAN_LENGTH, LOOKBACK_CANDLES,
     POINT_VALUE, RR_RATIO,
     MR_BB_LEN, MR_BB_STD, MR_RSI_LEN, MR_RSI_LO, MR_EMA_LEN, MR_ATR_LEN,
     MR_TP_ATR, MR_SL_ATR, MR_TIME_STOP, MR_SESS_START, MR_SESS_END,
-    MR_TP1_ATR, MR_TP2_ATR, MR_TP3_ATR, MR_BREAKEVEN_BUFFER_ATR,
+    MR_BREAKEVEN_BUFFER_ATR,
     LOG_FILE, LOG_LEVEL, DATA_DIR,
 )
 from assets_config import ENABLED_ASSETS
@@ -144,10 +144,11 @@ def _add_to_journal(
     pnl: float,
     closed_at: str,
     tier: int = 0,
+    trade_no: int | None = None,
 ) -> int:
-    """Ajoute un trade clôturé au journal. Retourne l'ID assigné."""
+    """Ajoute un trade clôturé au journal. Retourne l'ID (mensuel) assigné."""
     trade_id = journal["next_id"]
-    journal["trades"].append({
+    trade = {
         "id":          trade_id,
         "symbol":      symbol,
         "asset_name":  asset_name,
@@ -160,9 +161,54 @@ def _add_to_journal(
         "qty":         round(qty, 6),
         "pnl":         round(pnl, 2),
         "closed_at":   closed_at,
-    })
+    }
+    if trade_no is not None:
+        trade["trade_no"] = trade_no
+    journal["trades"].append(trade)
     journal["next_id"] = trade_id + 1
     return trade_id
+
+
+def _allocate_trade_no() -> int:
+    """Numéro de trade global, attribué à l'ouverture et jamais remis à zéro (contrairement
+    à l'id mensuel du journal) : c'est lui qu'on retrouve dans chaque message Telegram."""
+    trade_no = int(_load_state().get("next_trade_no", 1))
+    _save_state({"next_trade_no": trade_no + 1})
+    return trade_no
+
+
+def _adopt_unknown_positions(open_positions: list) -> list:
+    """Reprend dans _signal_cache les positions IG que le bot ne connaît pas.
+
+    Cas typique : /confirms a échoué à l'ouverture, l'ordre est exécuté mais le bot
+    n'a pas le dealId. Sans adoption, le trade était journalisé sans SL/TP, avec l'epic
+    comme nom d'actif (donc invisible dans le journal web, qui filtre sur "GOLD").
+    Retourne les entrées ajoutées.
+    """
+    adopted = []
+    for p in open_positions:
+        if p["deal_id"] in _signal_cache:
+            continue
+        asset_name = next(
+            (name for name, cfg in ENABLED_ASSETS.items() if cfg["symbol"] == p["epic"]),
+            p["epic"],
+        )
+        entry = {
+            "epic":       p["epic"],
+            "asset_name": asset_name,
+            "direction":  p["direction"],
+            "tier":       1,
+            "entry":      p.get("entry_price", 0.0),
+            "sl":         p.get("sl") or 0.0,
+            "tp":         p.get("tp") or 0.0,
+            "qty":        p.get("size", 0.0),
+            "opened_at":  p.get("created_at", ""),
+            "trade_no":   _allocate_trade_no(),
+            "adopted":    True,
+        }
+        _signal_cache[p["deal_id"]] = entry
+        adopted.append(entry)
+    return adopted
 
 # ── Previous signal tracking (anti-doublon) ───────────────────────
 _prev_long:  dict = {}   # {epic: bool}
@@ -485,8 +531,9 @@ async def handle_telegram_command(
                 d_str     = "LONG " if t["direction"] == "BUY" else "SHORT"
                 pnl_s     = f"{'+'if t['pnl'] > 0 else ''}{t['pnl']:.2f} $"
                 date_s    = t["closed_at"][8:10] + "/" + t["closed_at"][5:7] + " " + t["closed_at"][11:16]
-                tier_tag  = f" T{t['tier']}" if t.get("tier") else ""
-                lines.append(f"#{t['id']} {emoji} {d_str} {t['symbol']}{tier_tag} | {pnl_s} | {date_s}")
+                name      = t.get("asset_name") or t["symbol"]
+                number    = t.get("trade_no") or t["id"]
+                lines.append(f"#{number} {emoji} {d_str} {name} | {pnl_s} | {date_s}")
 
             text = "\n".join(lines)
             if len(text) > 4000:
@@ -670,12 +717,18 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     else:
                         pnl = (entry_price - exit_price) * qty
 
-                    tier = cache_entry.get("tier", 0)
+                    tier     = cache_entry.get("tier", 0)
+                    trade_no = cache_entry.get("trade_no")
                     logger.info(
-                        "Trade closed — %s %s (tier %s) | entry=%.2f exit=%.2f P&L=%.2f",
-                        pos_data["direction"], epic, tier, entry_price, exit_price, pnl,
+                        "Trade closed — #%s %s %s (tier %s) | entry=%.2f exit=%.2f P&L=%.2f",
+                        trade_no, pos_data["direction"], epic, tier, entry_price, exit_price, pnl,
                     )
-                    await telegram.send_trade_closed(epic, pos_data["direction"], pnl, DEMO_MODE, tier=tier)
+                    await telegram.send_trade_closed(
+                        cache_entry.get("asset_name", epic), pos_data["direction"], pnl,
+                        DEMO_MODE, tier=tier, trade_no=trade_no,
+                        entry=entry_price, exit_price=exit_price,
+                        sl=cache_entry.get("sl"), tp=cache_entry.get("tp"), qty=qty,
+                    )
 
                     _add_to_journal(
                         _journal,
@@ -690,6 +743,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                         pnl         = pnl,
                         closed_at   = now.isoformat(),
                         tier        = tier,
+                        trade_no    = trade_no,
                     )
                     _save_journal(_journal)
 
@@ -722,6 +776,24 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     removed_any = True
             if removed_any:
                 _save_state({"open_signal_cache": _signal_cache})
+
+        # ── Positions IG inconnues du bot (confirmation perdue) ─────
+        adopted = _adopt_unknown_positions(open_positions)
+        for entry in adopted:
+            logger.warning(
+                "Position inconnue adoptée — #%s %s %s entry=%.2f SL=%.2f TP=%.2f qty=%s",
+                entry["trade_no"], entry["direction"], entry["asset_name"],
+                entry["entry"], entry["sl"], entry["tp"], entry["qty"],
+            )
+            await telegram._send(
+                f"⚠️ <b>Trade #{entry['trade_no']} {entry['asset_name']}</b> retrouvé chez IG "
+                f"(confirmation d'ouverture manquée)\n"
+                f"Direction : {'LONG' if entry['direction'] == 'BUY' else 'SHORT'}\n"
+                f"Entrée : {entry['entry']:.2f} | SL : {entry['sl']:.2f} | TP : {entry['tp']:.2f}\n"
+                f"Lot : {entry['qty']:g}"
+            )
+        if adopted:
+            _save_state({"open_signal_cache": _signal_cache})
 
         # Update position tracking for next cycle
         _prev_positions = {
@@ -919,7 +991,12 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
             if BROKER == "ig":
                 orders = build_scaled_orders(
                     signal, risk_amount, contract_size,
-                    tp_atr_multipliers=(MR_TP1_ATR, MR_TP2_ATR, MR_TP3_ATR),
+                    # Position unique (retour arriere du scaling 3 paliers, 2026-09-19) :
+                    # backtest sur signaux reels/Dukascopy montre qu'un seul palier a
+                    # TP 1.0xATR bat le meilleur reglage de paliers trouve (voir
+                    # commentaire config.py::MR_TP_ATR). build_scaled_orders() avec un
+                    # seul multiplicateur cree un ordre unique, qty = risk_amount total.
+                    tp_atr_multipliers=(MR_TP_ATR,),
                 )
                 # build_scaled_orders() re-dérive qty à partir de risk_amount/sl_dist et
                 # ignore donc le plafonnement buying-power appliqué plus haut sur
@@ -950,7 +1027,9 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                             )
 
                         signals_found += 1
+                        trade_no = _allocate_trade_no()
                         _signal_cache[deal_id] = {
+                            "trade_no":   trade_no,
                             "epic":       epic,
                             "asset_name": asset_name,
                             "direction":  order["direction"],
@@ -968,7 +1047,10 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                             "entry_price": order["entry_price"],
                             "qty":         order["qty"],
                         }
-                        await telegram.send_signal(order, DEMO_MODE)
+                        await telegram.send_signal(
+                            order, DEMO_MODE, trade_no=trade_no,
+                            point_value=asset_config.get("point_value", 1.0),
+                        )
 
                     except BrokerError as e:
                         any_failed = True
@@ -1052,7 +1134,7 @@ async def main() -> None:
             logger.critical("ALPACA_API_KEY not configured in .env — stopping.")
             return
         broker = AlpacaBroker(ALPACA_API_KEY, ALPACA_API_SECRET, DEMO_MODE)
-    telegram = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+    telegram = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_THREAD_ID)
 
     await telegram.send_test_message()
 

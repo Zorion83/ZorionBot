@@ -90,6 +90,70 @@ class TestJournalAddTrade:
         assert journal["trades"][0]["tier"] == 1
 
 
+class TestTradeNumber:
+    def test_allocates_and_persists_increasing_numbers(self, tmp_path):
+        import main as m
+        m._STATE_FILE = str(tmp_path / "bot_state.json")
+        (tmp_path / "bot_state.json").write_text(json.dumps({"next_trade_no": 34}))
+
+        assert m._allocate_trade_no() == 34
+        assert m._allocate_trade_no() == 35
+        assert json.loads((tmp_path / "bot_state.json").read_text())["next_trade_no"] == 36
+
+    def test_starts_at_1_without_state(self, tmp_path):
+        import main as m
+        m._STATE_FILE = str(tmp_path / "bot_state.json")
+        assert m._allocate_trade_no() == 1
+
+    def test_journal_stores_trade_no(self, tmp_path):
+        import main as m
+        m._JOURNAL_FILE = str(tmp_path / "trade_journal.json")
+        journal = {"month": "2026-09", "next_id": 5, "trades": []}
+        m._add_to_journal(
+            journal, symbol="CS.D.CFEGOLD.CEF.IP", asset_name="GOLD", direction="SELL",
+            entry_price=4171.38, exit_price=4160.40, sl_price=4226.28, tp_price=4160.40,
+            qty=10.5, pnl=115.29, closed_at="2026-09-30T10:00:00Z", tier=1, trade_no=34,
+        )
+        assert journal["trades"][0]["trade_no"] == 34
+        assert journal["trades"][0]["id"] == 5
+
+
+class TestAdoptUnknownPositions:
+    """Position ouverte chez IG mais inconnue du bot (confirmation perdue) : on la
+    reprend avec les vrais SL/TP IG, le nom d'actif et un numéro de trade."""
+
+    def test_adopts_position_missing_from_cache(self, tmp_path):
+        import main as m
+        m._STATE_FILE = str(tmp_path / "bot_state.json")
+        (tmp_path / "bot_state.json").write_text(json.dumps({"next_trade_no": 34}))
+        m._signal_cache.clear()
+        pos = {"epic": "CS.D.CFEGOLD.CEF.IP", "deal_id": "DEAL9", "direction": "SELL",
+               "size": 12.4, "entry_price": 4153.12, "sl": 4199.3, "tp": 4143.88,
+               "created_at": "2026-09-29T11:00:05"}
+
+        adopted = m._adopt_unknown_positions([pos])
+
+        assert len(adopted) == 1
+        entry = m._signal_cache["DEAL9"]
+        assert entry["asset_name"] == "GOLD"
+        assert entry["sl"] == 4199.3 and entry["tp"] == 4143.88
+        assert entry["trade_no"] == 34
+        assert entry["opened_at"] == "2026-09-29T11:00:05"
+        m._signal_cache.clear()
+
+    def test_ignores_known_positions(self, tmp_path):
+        import main as m
+        m._STATE_FILE = str(tmp_path / "bot_state.json")
+        m._signal_cache.clear()
+        m._signal_cache["DEAL1"] = {"trade_no": 7}
+        pos = {"epic": "CS.D.CFEGOLD.CEF.IP", "deal_id": "DEAL1", "direction": "BUY",
+               "size": 1, "entry_price": 1.0, "sl": 0.5, "tp": 1.5, "created_at": ""}
+
+        assert m._adopt_unknown_positions([pos]) == []
+        assert m._signal_cache["DEAL1"] == {"trade_no": 7}
+        m._signal_cache.clear()
+
+
 class TestLoadJournal:
     def test_returns_fresh_journal_when_file_missing(self, tmp_path):
         import main as m

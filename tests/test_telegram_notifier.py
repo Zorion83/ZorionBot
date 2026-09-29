@@ -177,6 +177,74 @@ def test_format_open_position_no_tag_without_tier():
     assert "Position" not in text.split("SL")[0].split("\n")[0] or "/3" not in text
 
 
+class TestTradeNumbering:
+    """Numéro de trade global + entrée/SL/TP/écart en points/lot dans chaque message."""
+
+    ORDER = {
+        "direction": "SELL", "asset_name": "GOLD", "tier": 1,
+        "entry_price": 4171.38, "sl_price": 4226.28, "tp_price": 4160.40, "qty": 10.5,
+    }
+
+    def _capture(self, t):
+        captured = []
+        async def fake_send(text): captured.append(text)
+        t._send = fake_send
+        return captured
+
+    def test_signal_shows_trade_no_levels_points_and_lot(self):
+        t = TelegramNotifier("token", "chat")
+        captured = self._capture(t)
+        asyncio.run(t.send_signal(self.ORDER, demo=True, trade_no=34))
+        text = captured[0]
+        assert "#34" in text
+        assert "4171.38" in text and "4226.28" in text and "4160.40" in text
+        assert "-54.90 pts" in text          # SL : contre le trade
+        assert "+10.98 pts" in text          # TP : en faveur du trade
+        assert "-576.45 $" in text           # 54.90 pts x 10.5 lots x 1 $/pt
+        assert "10.5" in text
+
+    def test_signal_without_trade_no_still_works(self):
+        t = TelegramNotifier("token", "chat")
+        captured = self._capture(t)
+        asyncio.run(t.send_signal(self.ORDER, demo=False))
+        assert "GOLD" in captured[0]
+        assert "#" not in captured[0]
+
+    def test_trade_closed_shows_trade_no_and_details(self):
+        t = TelegramNotifier("token", "chat")
+        captured = self._capture(t)
+        asyncio.run(t.send_trade_closed(
+            "GOLD", "SELL", 115.29, demo=True, trade_no=34,
+            entry=4171.38, exit_price=4160.40, sl=4226.28, tp=4160.40, qty=10.5,
+        ))
+        text = captured[0]
+        assert "#34" in text
+        assert "4171.38" in text and "4160.40" in text and "4226.28" in text
+        assert "+10.98 pts" in text
+        assert "10.5" in text
+        assert "+115.29 $" in text
+
+    def test_trade_closed_minimal_call_still_works(self):
+        t = TelegramNotifier("token", "chat")
+        captured = self._capture(t)
+        asyncio.run(t.send_trade_closed("GOLD", "BUY", -12.0, demo=False))
+        assert "LOSS" in captured[0]
+        assert "SL / TP" not in captured[0]
+
+    def test_open_position_uses_trade_no_and_shows_lot(self):
+        from telegram_notifier import _format_open_position
+        pos = {"epic": "CS.D.CFEGOLD.CEF.IP", "direction": "SELL", "size": 10.5,
+               "entry_price": 4171.38, "current_price": 4165.88}
+        cache = {"sl": 4226.28, "tp": 4160.40, "qty": 10.5, "trade_no": 34,
+                 "asset_name": "GOLD"}
+        text = _format_open_position(1, pos, cache)
+        assert "#34" in text
+        assert "GOLD" in text
+        assert "+5.50 pts" in text
+        assert "+57.75 $" in text            # P&L recalculé : 5.50 x 10.5
+        assert "Lot" in text
+
+
 class TestSendDailySummaryExtended:
     def test_closed_today_section_appears(self):
         """send_daily_summary doit afficher la section trades clôturés si non vide."""

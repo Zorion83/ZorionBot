@@ -10,6 +10,7 @@ IG Markets REST API:
 
 Documentation: https://labs.ig.com/rest-trading-api-reference
 """
+import asyncio
 import logging
 from typing import List
 
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 IG_LIVE_URL = "https://api.ig.com/gateway/deal"
 IG_DEMO_URL = "https://demo-api.ig.com/gateway/deal"
+
+# Attentes (s) avant chaque nouvel essai de GET /confirms après un échec.
+CONFIRM_RETRY_DELAYS = (1.0, 2.0)
 
 
 class IGBroker(BaseBroker):
@@ -197,6 +201,8 @@ class IGBroker(BaseBroker):
                 "entry_price":   float(position.get("level", 0) or 0),
                 "current_price": float(current),
                 "created_at":    position.get("createdDateUTC", ""),
+                "sl":            float(position.get("stopLevel") or 0),
+                "tp":            float(position.get("limitLevel") or 0),
             })
         return positions
 
@@ -236,12 +242,26 @@ class IGBroker(BaseBroker):
         return await self._confirm(deal_ref, direction, symbol)
 
     async def _confirm(self, deal_ref: str, direction: str, symbol: str) -> str:
-        """Vérifie l'acceptation du deal via /confirms. Retourne le dealId confirmé."""
-        try:
-            resp = await self._request("GET", f"/confirms/{deal_ref}", version="1")
-        except BrokerError as e:
-            logger.warning("Could not confirm dealRef %s: %s", deal_ref, e)
-            return ""
+        """Vérifie l'acceptation du deal via /confirms. Retourne le dealId confirmé.
+
+        IG renvoie parfois 404 (error.service.execution.find) alors que l'ordre est
+        exécuté : on retente, puis on retrouve le deal dans /positions par son
+        dealReference. Sans ça, main.py perd SL/TP/tier du trade (19/08, 25/09, 29/09).
+        """
+        resp = None
+        for attempt, delay in enumerate((0,) + tuple(CONFIRM_RETRY_DELAYS), start=1):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                resp = await self._request("GET", f"/confirms/{deal_ref}", version="1")
+                break
+            except BrokerError as e:
+                logger.warning("Could not confirm dealRef %s (essai %d): %s",
+                               deal_ref, attempt, e)
+        if resp is None:
+            if direction == "CLOSE":
+                return ""
+            return await self._find_deal_id_by_ref(deal_ref, direction, symbol)
         confirm     = resp.json()
         deal_status = confirm.get("dealStatus", "UNKNOWN")
         if deal_status != "ACCEPTED":
@@ -252,6 +272,23 @@ class IGBroker(BaseBroker):
         deal_id = confirm.get("dealId", "")
         logger.info("%s on %s confirmed — dealId: %s", direction, symbol, deal_id)
         return deal_id
+
+    async def _find_deal_id_by_ref(self, deal_ref: str, direction: str, symbol: str) -> str:
+        """Repli quand /confirms échoue : cherche la position ouverte portant ce dealReference."""
+        try:
+            resp = await self._request("GET", "/positions", version="2")
+        except BrokerError as e:
+            logger.warning("Repli /positions impossible pour dealRef %s: %s", deal_ref, e)
+            return ""
+        for pos in resp.json().get("positions", []):
+            position = pos.get("position", {})
+            if position.get("dealReference") == deal_ref:
+                deal_id = position.get("dealId", "")
+                logger.info("%s on %s retrouvé via /positions — dealId: %s",
+                            direction, symbol, deal_id)
+                return deal_id
+        logger.warning("dealRef %s introuvable dans /positions", deal_ref)
+        return ""
 
     async def close_position(self, symbol: str, deal_id: str = None) -> None:
         """Clôture totale au marché — cible `deal_id` si fourni, sinon la 1ère position sur `symbol`."""
