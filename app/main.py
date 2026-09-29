@@ -30,7 +30,7 @@ from brokers.base_broker import BrokerError
 from strategy import analyse_asset
 from strategy_meanrev import analyse_meanrev
 from position_scaling import build_scaled_orders
-from telegram_notifier import TelegramNotifier, _format_open_position
+from telegram_notifier import TelegramNotifier, _format_open_position, PIP_REMINDER
 
 # ── Logging ───────────────────────────────────────────────────────
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -466,6 +466,7 @@ async def handle_telegram_command(
                     # un des deux .get() trouvera quelque chose (voir revue finale #2).
                     cache_entry = _signal_cache.get(p["deal_id"]) or _signal_cache.get(p["epic"])
                     lines.append(_format_open_position(idx, p, cache_entry))
+                lines.append(PIP_REMINDER)
             else:
                 lines.append("\n📊 Aucune position ouverte")
             await telegram._send("\n".join(lines))

@@ -198,10 +198,12 @@ class TestTradeNumbering:
         text = captured[0]
         assert "#34" in text
         assert "4171.38" in text and "4226.28" in text and "4160.40" in text
-        assert "-54.90 pts" in text          # SL : contre le trade
-        assert "+10.98 pts" in text          # TP : en faveur du trade
-        assert "-576.45 $" in text           # 54.90 pts x 10.5 lots x 1 $/pt
+        assert "-549.0 pips" in text         # SL : 54.90 $ de cours contre le trade
+        assert "+109.8 pips" in text         # TP : 10.98 $ de cours en faveur du trade
+        assert "-576.45 $" in text           # 549 pips x 10.5 lots x 0.10 $/pip
         assert "10.5" in text
+        assert "1.05 $/pip" in text          # valeur d'un pip pour ce lot
+        assert "1 pip = 0.10" in text        # rappel de la conversion
 
     def test_signal_without_trade_no_still_works(self):
         t = TelegramNotifier("token", "chat")
@@ -220,9 +222,10 @@ class TestTradeNumbering:
         text = captured[0]
         assert "#34" in text
         assert "4171.38" in text and "4160.40" in text and "4226.28" in text
-        assert "+10.98 pts" in text
+        assert "+109.8 pips" in text
         assert "10.5" in text
         assert "+115.29 $" in text
+        assert "1 pip = 0.10" in text
 
     def test_trade_closed_minimal_call_still_works(self):
         t = TelegramNotifier("token", "chat")
@@ -240,7 +243,7 @@ class TestTradeNumbering:
         text = _format_open_position(1, pos, cache)
         assert "#34" in text
         assert "GOLD" in text
-        assert "+5.50 pts" in text
+        assert "+55.0 pips" in text
         assert "+57.75 $" in text            # P&L recalculé : 5.50 x 10.5
         assert "Lot" in text
 

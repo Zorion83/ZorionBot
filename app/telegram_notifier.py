@@ -20,14 +20,23 @@ TELEGRAM_API     = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_UPDATES = "https://api.telegram.org/bot{token}/getUpdates"
 
 
+# Convention forex pour l'or : 1 pip = 0.10 $ de cours (seul actif tradé, Spot Gold $1).
+PIP_SIZE     = 0.10
+PIP_REMINDER = f"ℹ️ 1 pip = {PIP_SIZE:.2f} $ de cours · valeur = lot × {PIP_SIZE:.2f} $/pip"
+
+
 def _points(entry: float, level: float, direction: str) -> float:
     """Écart en points (1 point = 1 unité de cours), signé du point de vue du trade."""
     return (level - entry) if direction == "BUY" else (entry - level)
 
 
+def _pips(pts: float) -> float:
+    return pts / PIP_SIZE
+
+
 def _fmt_points(pts: float, qty: Optional[float] = None, point_value: float = 1.0) -> str:
-    """'+10.98 pts' ou '+10.98 pts · +115.29 $' si la taille est connue."""
-    text = f"{pts:+.2f} pts"
+    """'+109.8 pips' ou '+109.8 pips · +115.29 $' si la taille est connue."""
+    text = f"{_pips(pts):+.1f} pips"
     if qty:
         text += f" · {pts * qty * point_value:+.2f} $"
     return text
@@ -60,10 +69,10 @@ def _format_open_position(idx: int, pos: dict, cache_entry: Optional[dict]) -> s
     lines = [
         f"<b>#{number} {direction} {name}{tier_str}</b>",
         f"   Entrée  : {entry:.2f} → Actuel : {current:.2f}",
-        f"   P&amp;L  : {pnl_str} ({pts:+.2f} pts)",
+        f"   P&amp;L  : {pnl_str} ({_fmt_points(pts)})",
     ]
     if qty:
-        lines.append(f"   Lot     : {qty:g}")
+        lines.append(f"   Lot     : {qty:g}  ({qty * PIP_SIZE:.2f} $/pip)")
 
     if cache_entry:
         sl = cache_entry.get("sl", 0.0)
@@ -222,7 +231,8 @@ class TelegramNotifier:
             f"Entrée : {entry:.2f}\n"
             f"SL     : {signal['sl_price']:.2f}  ({_fmt_points(sl_pts, qty, point_value)})\n"
             f"TP     : {signal['tp_price']:.2f}  ({_fmt_points(tp_pts, qty, point_value)})\n"
-            f"Lot    : {qty:g}  ({qty * point_value:.2f} $/pt)"
+            f"Lot    : {qty:g}  ({qty * point_value * PIP_SIZE:.2f} $/pip)\n"
+            f"{PIP_REMINDER}"
         )
 
     async def send_trade_closed(
@@ -244,15 +254,17 @@ class TelegramNotifier:
         ]
         if entry and exit_price:
             pts = _points(entry, exit_price, direction)
-            lines.append(f"Entrée    : {entry:.2f} → Sortie : {exit_price:.2f}  ({pts:+.2f} pts)")
+            lines.append(f"Entrée    : {entry:.2f} → Sortie : {exit_price:.2f}  ({_fmt_points(pts)})")
         if sl and tp:
             lines.append(f"SL / TP   : {sl:.2f} / {tp:.2f}")
         if qty:
-            lines.append(f"Lot       : {qty:g}")
+            lines.append(f"Lot       : {qty:g}  ({qty * PIP_SIZE:.2f} $/pip)")
         lines += [
             f"P&amp;L    : {pnl_str}",
             f"Résultat  : <b>{result}</b>",
         ]
+        if entry and exit_price:
+            lines.append(PIP_REMINDER)
         await self._send("\n".join(lines))
 
     async def send_error(self, context: str, message: str) -> None:
@@ -281,6 +293,7 @@ class TelegramNotifier:
                 # ici (pas d'import config), donc ce fallback marche pour les deux.
                 cache_entry = signal_cache.get(pos["deal_id"]) or signal_cache.get(pos["epic"])
                 lines.append(_format_open_position(idx, pos, cache_entry))
+            lines.append(PIP_REMINDER)
         else:
             lines.append("Aucune position ouverte")
 
