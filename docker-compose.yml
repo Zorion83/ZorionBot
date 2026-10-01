@@ -1,12 +1,12 @@
 services:
-  donchianbot-v2:
-    container_name: donchianbot-v2
+  raspi_algo02:
+    container_name: Raspi_algo02
     build: .
     restart: unless-stopped
     env_file:
-      - /srv/data/donchianbot-v2/.env
+      - /srv/data/raspi_algo02/.env
     volumes:
-      - /srv/data/donchianbot-v2:/app/data
+      - /srv/data/raspi_algo02:/app/data
     environment:
       - DATA_DIR=/app/data
       - MR_TIME_STOP=48
