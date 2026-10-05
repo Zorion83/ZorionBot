@@ -4,7 +4,10 @@ strategy_meanrev.py — Mean Reversion XAUUSD v5 (portage du Pine Script validé
 Backtest de référence (Dukascopy M30, 2025-01 -> 2026-07, spread 0.5 $/oz) :
 263 trades, 88.6% WR, +1635 $, PF 1.35 — profitable sur 2025 ET 2026 séparément.
 
-Signal évalué sur la dernière bougie CLÔTURÉE (candles[-1]) :
+Signal évalué sur la dernière bougie CLÔTURÉE. Le cache IG contient aussi la bougie
+en cours (ouverte depuis quelques secondes au moment du cycle) : elle est écartée.
+Si la dernière bougie clôturée date de plus d'une barre (marché fermé le week-end,
+cache non rafraîchi), aucun signal : on ne trade pas un signal périmé.
   LONG  : close < BB inférieure (20, 1.5) ET RSI(14) < 40 ET close > EMA200
   SHORT : close > BB supérieure          ET RSI(14) > 60 ET close < EMA200
   Session : heure UTC de la bougie signal dans [5h, 22h), jours ouvrés uniquement.
@@ -16,7 +19,7 @@ Sizing : risque fixe en % de l'équity. qty (contrats) = risk_amount / (dist_SL 
 arrondi au pas de 0.1 contrat (mini or = 10 oz/contrat, 0.1 = 1 oz).
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from indicators import atr, bollinger, ema, rsi
@@ -24,12 +27,12 @@ from indicators import atr, bollinger, ema, rsi
 logger = logging.getLogger(__name__)
 
 MIN_CANDLES = 215   # EMA200 + marge
+BAR         = timedelta(minutes=30)
 
 
-def _candle_hour_utc(time_str: str) -> tuple:
-    """Retourne (heure UTC, jour de semaine) de la bougie. IG : 'YYYY-MM-DDTHH:MM:SS' en UTC."""
-    dt = datetime.fromisoformat(time_str.replace("Z", "")).replace(tzinfo=timezone.utc)
-    return dt.hour, dt.weekday()
+def _candle_start_utc(time_str: str) -> datetime:
+    """Heure d'ouverture UTC de la bougie. IG : 'YYYY-MM-DDTHH:MM:SS' en UTC."""
+    return datetime.fromisoformat(time_str.replace("Z", "")).replace(tzinfo=timezone.utc)
 
 
 def analyse_meanrev(
@@ -47,8 +50,22 @@ def analyse_meanrev(
     sl_atr:        float = 5.0,
     sess_start:    int   = 5,
     sess_end:      int   = 22,
+    now:           Optional[datetime] = None,
 ) -> Optional[Dict]:
     """Analyse les bougies et retourne un signal dict ou None."""
+    now = now or datetime.now(timezone.utc)
+
+    # ── Bougie en cours écartée, bougie périmée refusée ───────────
+    if candles and _candle_start_utc(candles[-1]["time"]) + BAR > now:
+        candles = candles[:-1]
+    if not candles:
+        return None
+    last_start = _candle_start_utc(candles[-1]["time"])
+    if now - (last_start + BAR) > BAR:
+        logger.info("%s: dernière bougie clôturée périmée (%s) — pas de signal",
+                    asset_name, candles[-1]["time"])
+        return None
+
     if len(candles) < MIN_CANDLES:
         logger.debug("%s: pas assez de bougies (%d < %d)", asset_name, len(candles), MIN_CANDLES)
         return None
@@ -59,7 +76,7 @@ def analyse_meanrev(
     close  = closes[-1]
 
     # ── Filtre session + jours ouvrés (heure de la bougie signal) ─
-    hour, weekday = _candle_hour_utc(candles[-1]["time"])
+    hour, weekday = last_start.hour, last_start.weekday()
     if weekday >= 5 or not (sess_start <= hour < sess_end):
         return None
 

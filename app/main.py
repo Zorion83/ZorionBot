@@ -897,6 +897,7 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
                     sl_atr       = MR_SL_ATR,
                     sess_start   = MR_SESS_START,
                     sess_end     = MR_SESS_END,
+                    now          = now,
                 )
             else:
                 signal = analyse_asset(
