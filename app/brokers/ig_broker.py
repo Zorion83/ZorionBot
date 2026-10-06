@@ -12,6 +12,7 @@ Documentation: https://labs.ig.com/rest-trading-api-reference
 """
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import List
 
 import httpx
@@ -130,11 +131,14 @@ class IGBroker(BaseBroker):
         """
         Sans `start` : les `count` dernières bougies.
         Avec `start` (ISO "YYYY-MM-DDTHH:MM:SS" UTC) : les bougies depuis ce timestamp.
+        Le `to` est obligatoire : avec `from` seul, IG ne renvoie que les 10 dernières
+        bougies, et tout ce qui précède est perdu (trous après une position longue).
         Attention au quota IG : 10 000 points de données / semaine sur le démo.
         """
         params = {"resolution": timeframe, "pageSize": 0}
         if start:
             params["from"] = start.replace("Z", "").split("+")[0]
+            params["to"]   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         else:
             params["max"] = count
         resp = await self._request("GET", f"/prices/{symbol}", version="3", params=params)

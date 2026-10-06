@@ -873,6 +873,12 @@ async def run_cycle(broker: AlpacaBroker, telegram: TelegramNotifier) -> int:
         epic = asset_config["symbol"]
 
         if epic in open_epics:
+            # Cache tenu à jour même position ouverte : sinon la bougie de l'entrée
+            # reste figée sur son instantané et la reprise doit combler des heures.
+            try:
+                await get_fresh_candles(broker, epic)
+            except Exception as e:
+                logger.warning("%s: cache non rafraîchi (position ouverte) : %s", asset_name, e)
             logger.debug("%s: position already open — skip", asset_name)
             continue
 

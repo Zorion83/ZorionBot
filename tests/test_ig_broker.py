@@ -174,3 +174,33 @@ class TestConfirmRetry:
         except BrokerError as e:
             assert "INSUFFICIENT_FUNDS" in str(e)
         assert calls["confirms"] == 1
+
+
+class TestGetCandles:
+    def _capture(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"prices": []})
+
+        return captured, handler
+
+    def test_incremental_fetch_sends_full_range(self):
+        # Régression : avec `from` seul, IG ne renvoie que les 10 dernières bougies.
+        # Après 5 h de position, les bougies du début du trade étaient perdues.
+        captured, handler = self._capture()
+        broker = _make_broker_with_transport(handler)
+        asyncio.run(broker.get_candles("CS.D.CFEGOLD.CEF.IP", 3, start="2026-10-06T09:00:00"))
+
+        assert captured["params"]["from"] == "2026-10-06T09:00:00"
+        assert captured["params"]["to"] > captured["params"]["from"]
+        assert "max" not in captured["params"]
+
+    def test_initial_fetch_uses_max_without_range(self):
+        captured, handler = self._capture()
+        broker = _make_broker_with_transport(handler)
+        asyncio.run(broker.get_candles("CS.D.CFEGOLD.CEF.IP", 500))
+
+        assert captured["params"]["max"] == "500"
+        assert "from" not in captured["params"] and "to" not in captured["params"]
