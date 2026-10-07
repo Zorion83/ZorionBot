@@ -186,16 +186,14 @@ class TestGetCandles:
 
         return captured, handler
 
-    def test_incremental_fetch_sends_full_range(self):
-        # Régression : avec `from` seul, IG ne renvoie que les 10 dernières bougies.
-        # Après 5 h de position, les bougies du début du trade étaient perdues.
+    def test_never_sends_to_param(self):
+        # Régression du 07/10 : IG lit `to` dans le fuseau du compte (UTC+2) et
+        # renvoyait des bougies vieilles de 2 h. Le paramètre ne doit plus partir.
         captured, handler = self._capture()
         broker = _make_broker_with_transport(handler)
         asyncio.run(broker.get_candles("CS.D.CFEGOLD.CEF.IP", 3, start="2026-10-06T09:00:00"))
 
-        assert captured["params"]["from"] == "2026-10-06T09:00:00"
-        assert captured["params"]["to"] > captured["params"]["from"]
-        assert "max" not in captured["params"]
+        assert "to" not in captured["params"]
 
     def test_initial_fetch_uses_max_without_range(self):
         captured, handler = self._capture()

@@ -263,12 +263,19 @@ def _merge_candles(existing: list, incoming: list) -> list:
     return [by_time[t] for t in sorted(by_time)]
 
 
-def _refetch_start(candles: list, back: int = 3) -> str:
-    """Timestamp à partir duquel redemander les bougies : on remonte de `back` barres
-    pour réécrire les dernières (dont la barre en cours) et rattraper un cycle manqué."""
+def _bars_to_fetch(candles: list, now: datetime, back: int = 3) -> int:
+    """Nombre de bougies à redemander à IG : celles écoulées depuis la dernière connue,
+    plus `back` barres pour réécrire les dernières (dont la barre en cours).
+
+    On demande un nombre (`max`) et non une plage de dates : avec `from` seul, IG ne
+    renvoie que les 10 dernières bougies (trous après une coupure) ; avec `from` + `to`,
+    il lit les dates dans le fuseau du compte (UTC+2) et renvoie des bougies vieilles
+    de 2 h (bot aveugle le 07/10)."""
     if not candles:
-        return ""
-    return candles[-min(back, len(candles))]["time"]
+        return LOOKBACK_CANDLES
+    last  = datetime.fromisoformat(candles[-1]["time"].replace("Z", "")).replace(tzinfo=timezone.utc)
+    elapsed = max(0, math.ceil((now - last).total_seconds() / 1800))
+    return min(elapsed + back, LOOKBACK_CANDLES)
 
 
 async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
@@ -291,8 +298,8 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 2: catch-up after disk cache load — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = _refetch_start(existing)
-            new_candles = await broker.get_candles(epic, 1000, start=last_start)
+            new_candles = await broker.get_candles(
+                epic, _bars_to_fetch(existing, datetime.now(timezone.utc)))
             _startup_done.add(epic)
             if new_candles:
                 known_times = {c["time"] for c in existing}
@@ -318,8 +325,8 @@ async def get_fresh_candles(broker: AlpacaBroker, epic: str) -> list:
         # Level 3: incremental update — fetch from last known bar onwards
         try:
             existing   = _candle_cache[epic]
-            last_start = _refetch_start(existing)
-            new_candles = await broker.get_candles(epic, 3, start=last_start)
+            new_candles = await broker.get_candles(
+                epic, _bars_to_fetch(existing, datetime.now(timezone.utc)))
             if new_candles:
                 known_times = {c["time"] for c in existing}
                 added       = [c for c in new_candles if c["time"] not in known_times]
