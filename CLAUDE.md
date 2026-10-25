@@ -14,3 +14,8 @@ Si le changement en cours est un refactor ou une migration non finalisée, le me
 ## Avant de pousser
 
 Vérifier que le fichier modifié compile / s'importe sans erreur avant de committer sur la branche principale.
+
+## Pièges de l'API IG
+
+- Avant de changer d'epic ou d'instrument : passer un vrai ordre minimal (taille 1, SL et TP larges), puis le refermer aussitôt. `marketStatus: TRADEABLE` ne garantit pas le droit d'exécution : le 23/07, `CS.D.CFDGOLD.CFM.IP` rejetait tous les ordres en 403 (détail dans `app/assets_config.py`).
+- Ne jamais supposer la forme des champs de `/history/transactions` : la vérifier sur une vraie réponse et sur les logs du bot. `transactionType` est traduit (`ORDRE` sur le compte démo FR, filtrer sur `cashTransaction`), chaque ligne est un trade complet (ouverture et clôture), et le signe de `size` suit le sens du trade d'origine (détail dans `app/brokers/ig_broker.py`).
